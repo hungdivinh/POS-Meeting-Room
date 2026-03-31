@@ -27,7 +27,7 @@ export interface Booking {
   id: string;
   roomId: string;
   userName: string;
-  userEmail: string;
+  userPhone: string;
   project: string;
   purpose: string;
   startTime: string;
@@ -60,7 +60,7 @@ export const bookingsApi = {
 export interface ActivityLog {
   id: string;
   userName: string;
-  userEmail: string;
+  userPhone: string;
   action: string;
   detail: string;
   createdAt: string;
@@ -68,6 +68,6 @@ export interface ActivityLog {
 
 export const logsApi = {
   list: (limit = 200) => request<ActivityLog[]>(`/api/logs?limit=${limit}`),
-  create: (data: { userName: string; userEmail: string; action: string; detail?: string }) =>
+  create: (data: { userName: string; userPhone: string; action: string; detail?: string }) =>
     request<{ id: string }>('/api/logs', { method: 'POST', body: JSON.stringify(data) }),
 };

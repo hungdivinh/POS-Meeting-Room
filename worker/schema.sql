@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   room_id TEXT NOT NULL,
   user_name TEXT NOT NULL,
-  user_email TEXT NOT NULL,
+  user_phone TEXT NOT NULL,
   project TEXT DEFAULT '',
   purpose TEXT DEFAULT '',
   start_time TEXT NOT NULL,
@@ -32,7 +32,7 @@ CREATE INDEX IF NOT EXISTS idx_bookings_room_id ON bookings(room_id);
 CREATE TABLE IF NOT EXISTS activity_logs (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   user_name TEXT NOT NULL,
-  user_email TEXT NOT NULL,
+  user_phone TEXT NOT NULL,
   action TEXT NOT NULL,
   detail TEXT DEFAULT '',
   created_at TEXT DEFAULT (datetime('now'))

@@ -5,7 +5,7 @@ import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, La
 
 interface UserProfile {
   name: string;
-  email: string;
+  phone: string;
 }
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8 AM to 6 PM
@@ -19,7 +19,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  const isAdmin = userProfile?.email.includes('admin-pos') || false;
+  const isAdmin = userProfile?.phone.includes('admin-pos') || false;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -28,7 +28,7 @@ export default function App() {
   
   // Profile Form
   const [profileName, setProfileName] = useState('');
-  const [profileEmail, setProfileEmail] = useState('');
+  const [profilePhone, setProfilePhone] = useState('');
 
   // Booking Form
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
@@ -128,7 +128,7 @@ export default function App() {
 
   const logActivity = useCallback((action: string, detail?: string) => {
     if (!userProfile) return;
-    logsApi.create({ userName: userProfile.name, userEmail: userProfile.email, action, detail }).catch(() => {});
+    logsApi.create({ userName: userProfile.name, userPhone: userProfile.phone, action, detail }).catch(() => {});
   }, [userProfile]);
 
   const fetchLogs = async () => {
@@ -144,12 +144,12 @@ export default function App() {
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profileName || !profileEmail) return;
+    if (!profileName || !profilePhone) return;
 
-    const profile = { name: profileName, email: profileEmail };
+    const profile = { name: profileName, phone: profilePhone };
     localStorage.setItem('meetingUserProfile', JSON.stringify(profile));
     setUserProfile(profile);
-    logsApi.create({ userName: profileName, userEmail: profileEmail, action: 'Đăng nhập' }).catch(() => {});
+    logsApi.create({ userName: profileName, userPhone: profilePhone, action: 'Đăng nhập' }).catch(() => {});
     setIsProfileModalOpen(false);
   };
 
@@ -158,20 +158,20 @@ export default function App() {
     setUserProfile(null);
     setIsProfileModalOpen(true);
     setProfileName('');
-    setProfileEmail('');
+    setProfilePhone('');
   };
 
-  const checkOverlap = (roomId: string, startIso: string, endIso: string, dateStr: string, excludeBookingId?: string) => {
+  const findOverlap = (roomId: string, startIso: string, endIso: string, dateStr: string, excludeBookingId?: string) => {
     const start = parseISO(startIso);
     const end = parseISO(endIso);
-    
-    return bookings.some(b => {
+
+    return bookings.find(b => {
       if (b.id === excludeBookingId) return false;
       if (b.roomId !== roomId || b.date !== dateStr) return false;
       const bStart = parseISO(b.startTime);
       const bEnd = parseISO(b.endTime);
       return (bStart < end && bEnd > start);
-    });
+    }) || null;
   };
 
   const handleSaveBooking = async (e: React.FormEvent) => {
@@ -183,8 +183,9 @@ export default function App() {
       const endIso = `${bDate}T${bEndTime}:00`;
 
       if (editingBooking) {
-        if (checkOverlap(bRoomId, startIso, endIso, bDate, editingBooking.id)) {
-          alert("Khung giờ này đã có người đặt.");
+        const overlap = findOverlap(bRoomId, startIso, endIso, bDate, editingBooking.id);
+        if (overlap) {
+          alert(`Khung giờ này đã có người đặt.\nLiên hệ: ${overlap.userName} - ${overlap.userPhone}`);
           return;
         }
 
@@ -205,15 +206,16 @@ export default function App() {
         await bookingsApi.update(editingBooking.id, updatedBooking);
       } else {
         if (!isRepeat) {
-          if (checkOverlap(bRoomId, startIso, endIso, bDate)) {
-            alert("Khung giờ này đã có người đặt.");
+          const overlap = findOverlap(bRoomId, startIso, endIso, bDate);
+          if (overlap) {
+            alert(`Khung giờ này đã có người đặt.\nLiên hệ: ${overlap.userName} - ${overlap.userPhone}`);
             return;
           }
 
           const newBooking: any = {
             roomId: bRoomId,
             userName: userProfile.name,
-            userEmail: userProfile.email,
+            userPhone: userProfile.phone,
             project: bProject,
             purpose: bPurpose,
             startTime: startIso,
@@ -256,7 +258,7 @@ export default function App() {
             const startIso = `${dateStr}T${bStartTime}:00`;
             const endIso = `${dateStr}T${bEndTime}:00`;
 
-            if (checkOverlap(bRoomId, startIso, endIso, dateStr)) {
+            if (findOverlap(bRoomId, startIso, endIso, dateStr)) {
               hasOverlap = true;
               break;
             }
@@ -264,7 +266,7 @@ export default function App() {
             const newBooking: any = {
               roomId: bRoomId,
               userName: userProfile.name,
-              userEmail: userProfile.email,
+              userPhone: userProfile.phone,
               project: bProject,
               purpose: bPurpose,
               startTime: startIso,
@@ -319,7 +321,7 @@ export default function App() {
       onConfirm: async () => {
         try {
           await bookingsApi.delete(bookingId);
-          logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName}, Ngày: ${booking?.date}`);
+          logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Ngày: ${booking?.date}`);
           setConfirmDialog(prev => ({ ...prev, isOpen: false }));
           fetchBookings();
         } catch (error) {
@@ -537,7 +539,7 @@ export default function App() {
                       const leftPercent = ((visibleStartHour - HOURS[0]) / HOURS.length) * 100;
                       const widthPercent = ((visibleEndHour - visibleStartHour) / HOURS.length) * 100;
 
-                      const isOwner = booking.userEmail === userProfile?.email;
+                      const isOwner = booking.userPhone === userProfile?.phone;
                       const canEdit = isOwner || isAdmin;
 
                       return (
@@ -552,7 +554,7 @@ export default function App() {
                           }}
                         >
                           <div className="text-xs font-semibold text-gray-900 break-words whitespace-normal">
-                            {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName}
+                            {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
                           </div>
                           {booking.project && <div className="text-xs text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                           {booking.purpose && <div className="text-xs text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
@@ -664,7 +666,7 @@ export default function App() {
                               {morningBookings.map(booking => {
                                 const bStart = parseISO(booking.startTime);
                                 const bEnd = parseISO(booking.endTime);
-                                const isOwner = booking.userEmail === userProfile?.email;
+                                const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
                                 
                                 return (
@@ -674,7 +676,7 @@ export default function App() {
                                     style={booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {}}
                                   >
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
-                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName}
+                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
                                     </div>
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
@@ -734,7 +736,7 @@ export default function App() {
                               {afternoonBookings.map(booking => {
                                 const bStart = parseISO(booking.startTime);
                                 const bEnd = parseISO(booking.endTime);
-                                const isOwner = booking.userEmail === userProfile?.email;
+                                const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
                                 
                                 return (
@@ -744,7 +746,7 @@ export default function App() {
                                     style={booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {}}
                                   >
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
-                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName}
+                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
                                     </div>
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
@@ -921,14 +923,14 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                  <input 
-                    type="email" 
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
+                  <input
+                    type="tel"
                     required
-                    value={profileEmail}
-                    onChange={(e) => setProfileEmail(e.target.value)}
+                    value={profilePhone}
+                    onChange={(e) => setProfilePhone(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
-                    placeholder="VD: a.nguyen@company.com"
+                    placeholder="VD: 0901234567"
                   />
                 </div>
               </div>
@@ -963,8 +965,8 @@ export default function App() {
                     <input type="text" value={editingBooking ? editingBooking.userName : userProfile?.name || ''} disabled className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-gray-500" />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                    <input type="text" value={editingBooking ? editingBooking.userEmail : userProfile?.email || ''} disabled className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-gray-500" />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
+                    <input type="text" value={editingBooking ? editingBooking.userPhone : userProfile?.phone || ''} disabled className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-gray-500" />
                   </div>
                 </div>
 
@@ -1318,7 +1320,7 @@ export default function App() {
                         </td>
                         <td className="p-2">
                           <div className="font-medium text-gray-900">{log.userName}</div>
-                          <div className="text-xs text-gray-500">{log.userEmail}</div>
+                          <div className="text-xs text-gray-500">{log.userPhone}</div>
                         </td>
                         <td className="p-2">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${

@@ -82,7 +82,7 @@ export default {
           id: r.id,
           roomId: r.room_id,
           userName: r.user_name,
-          userEmail: r.user_email,
+          userPhone: r.user_phone,
           project: r.project,
           purpose: r.purpose,
           startTime: r.start_time,
@@ -104,12 +104,12 @@ export default {
         for (const item of items) {
           const id = crypto.randomUUID().replace(/-/g, '');
           await env.DB.prepare(
-            'INSERT INTO bookings (id, room_id, user_name, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO bookings (id, room_id, user_name, user_phone, project, purpose, start_time, end_time, date, repeat_group_id, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             id,
             item.roomId,
             item.userName,
-            item.userEmail,
+            item.userPhone,
             item.project ?? '',
             item.purpose ?? '',
             item.startTime,
@@ -158,7 +158,7 @@ export default {
         const mapped = results.map((r: any) => ({
           id: r.id,
           userName: r.user_name,
-          userEmail: r.user_email,
+          userPhone: r.user_phone,
           action: r.action,
           detail: r.detail,
           createdAt: r.created_at,
@@ -170,8 +170,8 @@ export default {
         const body = await request.json<any>();
         const id = crypto.randomUUID().replace(/-/g, '');
         await env.DB.prepare(
-          'INSERT INTO activity_logs (id, user_name, user_email, action, detail) VALUES (?, ?, ?, ?, ?)'
-        ).bind(id, body.userName, body.userEmail, body.action, body.detail ?? '').run();
+          'INSERT INTO activity_logs (id, user_name, user_phone, action, detail) VALUES (?, ?, ?, ?, ?)'
+        ).bind(id, body.userName, body.userPhone, body.action, body.detail ?? '').run();
         return json({ id }, 201);
       }
 
