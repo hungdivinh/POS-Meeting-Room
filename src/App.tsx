@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { roomsApi, bookingsApi, type Room, type Booking } from './api';
 import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2 } from 'lucide-react';
@@ -110,6 +110,16 @@ export default function App() {
     const interval = setInterval(fetchBookings, 30000);
     return () => clearInterval(interval);
   }, [fetchBookings]);
+
+  // Sort rooms: active first, then inactive; within each group sort by name
+  const sortedRooms = useMemo(() => {
+    return [...rooms].sort((a, b) => {
+      const aActive = a.status?.includes('hoạt động') ? 0 : 1;
+      const bActive = b.status?.includes('hoạt động') ? 0 : 1;
+      if (aActive !== bActive) return aActive - bActive;
+      return a.name.localeCompare(b.name, 'vi');
+    });
+  }, [rooms]);
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -425,17 +435,19 @@ export default function App() {
 
           {/* Rooms and Timeline */}
           <div className="divide-y divide-gray-200">
-            {rooms.length === 0 ? (
+            {sortedRooms.length === 0 ? (
               <div className="p-8 text-center text-gray-500">Chưa có phòng họp nào.</div>
             ) : (
-              rooms.map(room => (
-                <div key={room.id} className="flex group">
+              sortedRooms.map(room => {
+                const isActive = room.status?.includes('hoạt động');
+                return (
+                <div key={room.id} className={`flex group ${!isActive ? 'opacity-60 bg-gray-50' : ''}`}>
                   {/* Room Info */}
-                  <div 
+                  <div
                     className="w-48 shrink-0 border-r border-gray-200 p-3 bg-white relative z-10 flex flex-col justify-center"
                     style={{ borderLeft: `4px solid ${room.color}` }}
                   >
-                    <div className="font-medium text-gray-900 text-sm">
+                    <div className={`font-medium text-sm ${!isActive ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                       {room.name}
                     </div>
                     {room.capacity > 0 && <div className="text-sm text-gray-600 mt-0.5">Sức chứa: {room.capacity} người</div>}
@@ -531,7 +543,7 @@ export default function App() {
                     })}
                   </div>
                 </div>
-              ))
+              );})
             )}
           </div>
         </div>
@@ -566,17 +578,19 @@ export default function App() {
 
           {/* Body */}
           <div className="divide-y divide-gray-300">
-            {rooms.length === 0 ? (
+            {sortedRooms.length === 0 ? (
               <div className="p-8 text-center text-gray-500">Chưa có phòng họp nào.</div>
             ) : (
-              rooms.map(room => (
-                <div key={room.id} className="flex border-b-2 border-gray-300">
+              sortedRooms.map(room => {
+                const isActive = room.status?.includes('hoạt động');
+                return (
+                <div key={room.id} className={`flex border-b-2 border-gray-300 ${!isActive ? 'opacity-60 bg-gray-50' : ''}`}>
                   {/* Room Name */}
-                  <div 
+                  <div
                     className="w-48 shrink-0 border-r border-gray-200 p-3 bg-white flex flex-col justify-center"
                     style={{ borderLeft: `4px solid ${room.color}` }}
                   >
-                    <div className="font-medium text-gray-900 text-sm">
+                    <div className={`font-medium text-sm ${!isActive ? 'line-through text-gray-400' : 'text-gray-900'}`}>
                       {room.name}
                     </div>
                     {room.capacity > 0 && <div className="text-sm text-gray-600 mt-0.5">Sức chứa: {room.capacity} người</div>}
@@ -725,7 +739,7 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-              ))
+              );})
             )}
           </div>
         </div>
