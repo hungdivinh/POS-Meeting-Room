@@ -19,7 +19,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '2026') || false;
+  const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '6530042026') || false;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -154,7 +154,7 @@ export default function App() {
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!profileName || !profilePhone) return;
-    const isAdminLogin = profileName === 'admin-pos' && profilePhone === '2026';
+    const isAdminLogin = profileName === 'admin-pos' && profilePhone === '6530042026';
     if (!isAdminLogin && (profilePhone.length < 10 || profilePhone.length > 11)) {
       alert('Số điện thoại phải có 10-11 số');
       return;
@@ -525,7 +525,7 @@ export default function App() {
             </div>
             <div className="flex-1 flex">
               {HOURS.map(hour => (
-                <div key={hour} className="flex-1 border-r border-gray-200 p-2 text-center text-sm font-bold text-blue-900 min-w-[80px]">
+                <div key={hour} className="flex-1 border-r border-gray-200 p-2 text-center text-sm font-bold text-blue-900 min-w-[120px]">
                   {hour}:00
                 </div>
               ))}
@@ -554,7 +554,7 @@ export default function App() {
                   </div>
 
                   {/* Timeline Slots */}
-                  <div className="flex-1 flex relative bg-white">
+                  <div className="flex-1 flex relative bg-white min-h-[80px]">
                     {HOURS.map(hour => {
                       const slotStart = new Date(selectedDate);
                       slotStart.setHours(hour, 0, 0, 0);
@@ -574,7 +574,7 @@ export default function App() {
                       return (
                         <div 
                           key={hour} 
-                          className={`flex-1 border-r border-gray-100 min-w-[80px] relative transition-colors ${room.status?.includes('hoạt động') ? 'hover:bg-blue-50 cursor-pointer' : ''}`}
+                          className={`flex-1 border-r border-gray-100 min-w-[120px] relative transition-colors ${room.status?.includes('hoạt động') ? 'hover:bg-blue-50 cursor-pointer' : ''}`}
                           onClick={() => room.status?.includes('hoạt động') && openBookingModalWithDefaults(room.id, format(selectedDate, 'yyyy-MM-dd'), hour)}
                         >
                         </div>
@@ -604,18 +604,22 @@ export default function App() {
                         <div 
                           key={booking.id}
                           onClick={() => room.status?.includes('hoạt động') && openBookingModalWithDefaults(room.id, format(selectedDate, 'yyyy-MM-dd'), Math.floor(startHour))}
-                          className={`absolute top-1 min-h-[calc(100%-8px)] h-auto rounded-md shadow-sm border p-2 flex flex-col justify-start group/booking z-20 ${!booking.color ? 'bg-yellow-50 border-yellow-200' : ''} ${room.status?.includes('hoạt động') ? 'cursor-pointer hover:shadow-md hover:border-yellow-400' : ''}`}
-                          style={{ 
-                            left: `${leftPercent}%`, 
+                          className={`absolute top-1 bottom-1 rounded-md shadow-sm border p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden ${!booking.color ? 'bg-yellow-50 border-yellow-200' : ''} ${room.status?.includes('hoạt động') ? 'cursor-pointer hover:shadow-md hover:border-yellow-400' : ''}`}
+                          style={{
+                            left: `${leftPercent}%`,
                             width: `calc(${widthPercent}% - 4px)`,
                             ...(booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {})
                           }}
+                          title={`${format(bStart, 'HH:mm')} - ${format(bEnd, 'HH:mm')}: ${booking.userName} (${booking.userPhone})${booking.project ? '\nDA: ' + booking.project : ''}${booking.purpose ? '\n' + booking.purpose : ''}`}
                         >
-                          <div className="text-xs font-semibold text-gray-900 break-words whitespace-normal">
-                            {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
+                          <div className="text-xs font-semibold text-gray-900 truncate">
+                            {format(bStart, 'HH:mm')}-{format(bEnd, 'HH:mm')}: {booking.userName}
                           </div>
-                          {booking.project && <div className="text-xs text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
-                          {booking.purpose && <div className="text-xs text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
+                          <div className="text-xs text-gray-600 truncate">
+                            SĐT: {booking.userPhone}
+                          </div>
+                          {booking.project && <div className="text-xs text-gray-700 truncate">DA: {booking.project}</div>}
+                          {booking.purpose && <div className="text-xs text-gray-600 truncate">{booking.purpose}</div>}
                           
                           {canEdit && (
                             <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-50/90' : 'bg-white/50'}`}>
