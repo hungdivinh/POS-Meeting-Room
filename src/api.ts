@@ -55,3 +55,19 @@ export const bookingsApi = {
     request<Booking>(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request<{ success: boolean }>(`/api/bookings/${id}`, { method: 'DELETE' }),
 };
+
+// Activity Logs
+export interface ActivityLog {
+  id: string;
+  userName: string;
+  userEmail: string;
+  action: string;
+  detail: string;
+  createdAt: string;
+}
+
+export const logsApi = {
+  list: (limit = 200) => request<ActivityLog[]>(`/api/logs?limit=${limit}`),
+  create: (data: { userName: string; userEmail: string; action: string; detail?: string }) =>
+    request<{ id: string }>('/api/logs', { method: 'POST', body: JSON.stringify(data) }),
+};

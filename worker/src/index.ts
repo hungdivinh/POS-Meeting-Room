@@ -148,6 +148,33 @@ export default {
         return json({ success: true });
       }
 
+      // === ACTIVITY LOGS ===
+      if (path === '/api/logs' && method === 'GET') {
+        const limit = parseInt(url.searchParams.get('limit') || '200');
+        const { results } = await env.DB.prepare(
+          'SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT ?'
+        ).bind(limit).all();
+
+        const mapped = results.map((r: any) => ({
+          id: r.id,
+          userName: r.user_name,
+          userEmail: r.user_email,
+          action: r.action,
+          detail: r.detail,
+          createdAt: r.created_at,
+        }));
+        return json(mapped);
+      }
+
+      if (path === '/api/logs' && method === 'POST') {
+        const body = await request.json<any>();
+        const id = crypto.randomUUID().replace(/-/g, '');
+        await env.DB.prepare(
+          'INSERT INTO activity_logs (id, user_name, user_email, action, detail) VALUES (?, ?, ?, ?, ?)'
+        ).bind(id, body.userName, body.userEmail, body.action, body.detail ?? '').run();
+        return json({ id }, 201);
+      }
+
       return error('Not found', 404);
     } catch (e: any) {
       return error(e.message || 'Internal server error', 500);

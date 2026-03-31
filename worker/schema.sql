@@ -28,3 +28,14 @@ CREATE TABLE IF NOT EXISTS bookings (
 
 CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
 CREATE INDEX IF NOT EXISTS idx_bookings_room_id ON bookings(room_id);
+
+CREATE TABLE IF NOT EXISTS activity_logs (
+  id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
+  user_name TEXT NOT NULL,
+  user_email TEXT NOT NULL,
+  action TEXT NOT NULL,
+  detail TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);

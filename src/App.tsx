@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { roomsApi, bookingsApi, type Room, type Booking } from './api';
+import { roomsApi, bookingsApi, logsApi, type Room, type Booking, type ActivityLog } from './api';
 import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
-import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2 } from 'lucide-react';
+import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2, ClipboardList } from 'lucide-react';
 
 interface UserProfile {
   name: string;
@@ -19,7 +19,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  const isAdmin = userProfile?.email.includes('admin-posXLHH') || false;
+  const isAdmin = userProfile?.email.includes('admin-pos') || false;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -60,6 +60,11 @@ export default function App() {
     message: string;
     onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
+
+  // Activity Log State
+  const [isLogModalOpen, setIsLogModalOpen] = useState(false);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
+  const [logsLoading, setLogsLoading] = useState(false);
 
   const fetchRooms = useCallback(async () => {
     try {
@@ -121,13 +126,30 @@ export default function App() {
     });
   }, [rooms]);
 
+  const logActivity = useCallback((action: string, detail?: string) => {
+    if (!userProfile) return;
+    logsApi.create({ userName: userProfile.name, userEmail: userProfile.email, action, detail }).catch(() => {});
+  }, [userProfile]);
+
+  const fetchLogs = async () => {
+    setLogsLoading(true);
+    try {
+      const data = await logsApi.list(500);
+      setActivityLogs(data);
+    } catch (e) {
+      console.error('Failed to fetch logs:', e);
+    }
+    setLogsLoading(false);
+  };
+
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!profileName || !profileEmail) return;
-    
+
     const profile = { name: profileName, email: profileEmail };
     localStorage.setItem('meetingUserProfile', JSON.stringify(profile));
     setUserProfile(profile);
+    logsApi.create({ userName: profileName, userEmail: profileEmail, action: 'Đăng nhập' }).catch(() => {});
     setIsProfileModalOpen(false);
   };
 
@@ -265,6 +287,15 @@ export default function App() {
         }
       }
 
+      const roomName = rooms.find(r => r.id === bRoomId)?.name || bRoomId;
+      if (editingBooking) {
+        logActivity('Chỉnh sửa đặt phòng', `Phòng: ${roomName}, Ngày: ${bDate}, ${bStartTime}-${bEndTime}`);
+      } else if (isRepeat) {
+        logActivity('Đặt phòng lặp lại', `Phòng: ${roomName}, Từ: ${bDate} đến ${repeatEndDate}, ${bStartTime}-${bEndTime}`);
+      } else {
+        logActivity('Đặt phòng', `Phòng: ${roomName}, Ngày: ${bDate}, ${bStartTime}-${bEndTime}`);
+      }
+
       setIsBookingModalOpen(false);
       setEditingBooking(null);
       setBProject('');
@@ -279,6 +310,8 @@ export default function App() {
   };
 
   const handleDeleteBooking = (bookingId: string) => {
+    const booking = bookings.find(b => b.id === bookingId);
+    const roomName = rooms.find(r => r.id === booking?.roomId)?.name || '';
     setConfirmDialog({
       isOpen: true,
       title: 'Xóa lịch đặt phòng',
@@ -286,6 +319,7 @@ export default function App() {
       onConfirm: async () => {
         try {
           await bookingsApi.delete(bookingId);
+          logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName}, Ngày: ${booking?.date}`);
           setConfirmDialog(prev => ({ ...prev, isOpen: false }));
           fetchBookings();
         } catch (error) {
@@ -344,8 +378,10 @@ export default function App() {
 
       if (editingRoom) {
         await roomsApi.update(editingRoom.id, roomData);
+        logActivity('Chỉnh sửa phòng', `Phòng: ${rName}`);
       } else {
         await roomsApi.create(roomData as Omit<Room, 'id'>);
+        logActivity('Tạo phòng', `Phòng: ${rName}, Sức chứa: ${rCapacity}, Vị trí: ${rLocation}`);
       }
 
       setEditingRoom(null);
@@ -362,6 +398,7 @@ export default function App() {
   };
 
   const handleDeleteRoom = (roomId: string) => {
+    const roomName = rooms.find(r => r.id === roomId)?.name || '';
     setConfirmDialog({
       isOpen: true,
       title: 'Xóa phòng họp',
@@ -369,6 +406,7 @@ export default function App() {
       onConfirm: async () => {
         try {
           await roomsApi.delete(roomId);
+          logActivity('Xóa phòng', `Phòng: ${roomName}`);
           setConfirmDialog(prev => ({ ...prev, isOpen: false }));
           fetchRooms();
         } catch (error) {
@@ -409,6 +447,7 @@ export default function App() {
       for (const room of sampleRooms) {
         await roomsApi.create(room as Omit<Room, 'id'>);
       }
+      logActivity('Tạo phòng mẫu', `Đã tạo ${sampleRooms.length} phòng mẫu`);
       fetchRooms();
     } catch (error) {
       console.error('Seed rooms error:', error);
@@ -810,12 +849,20 @@ export default function App() {
 
         <div className="flex items-center gap-4">
           {isAdmin && (
-            <button 
-              onClick={() => setIsRoomModalOpen(true)}
-              className="text-sm bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md font-medium hover:bg-purple-200 flex items-center gap-2"
-            >
-              <Settings size={16} /> Quản lý phòng
-            </button>
+            <>
+              <button
+                onClick={() => { setIsLogModalOpen(true); fetchLogs(); }}
+                className="text-sm bg-gray-100 text-gray-700 px-3 py-1.5 rounded-md font-medium hover:bg-gray-200 flex items-center gap-2"
+              >
+                <ClipboardList size={16} /> Log
+              </button>
+              <button
+                onClick={() => setIsRoomModalOpen(true)}
+                className="text-sm bg-purple-100 text-purple-700 px-3 py-1.5 rounded-md font-medium hover:bg-purple-200 flex items-center gap-2"
+              >
+                <Settings size={16} /> Quản lý phòng
+              </button>
+            </>
           )}
           {rooms.length === 0 && (
             <button 
@@ -1231,6 +1278,67 @@ export default function App() {
                 </form>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Activity Log Modal */}
+      {isLogModalOpen && isAdmin && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 my-8 flex flex-col max-h-[90vh]">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                <ClipboardList size={20} /> Nhật ký hoạt động
+              </h2>
+              <button onClick={() => setIsLogModalOpen(false)} className="text-gray-400 hover:text-gray-600 text-2xl">
+                &times;
+              </button>
+            </div>
+
+            {logsLoading ? (
+              <div className="text-center py-8 text-gray-500">Đang tải...</div>
+            ) : activityLogs.length === 0 ? (
+              <div className="text-center py-8 text-gray-500">Chưa có hoạt động nào.</div>
+            ) : (
+              <div className="overflow-y-auto flex-1">
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-semibold text-gray-700">Thời gian</th>
+                      <th className="text-left p-2 font-semibold text-gray-700">Người dùng</th>
+                      <th className="text-left p-2 font-semibold text-gray-700">Hành động</th>
+                      <th className="text-left p-2 font-semibold text-gray-700">Chi tiết</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {activityLogs.map(log => (
+                      <tr key={log.id} className="hover:bg-gray-50">
+                        <td className="p-2 text-gray-500 whitespace-nowrap">
+                          {new Date(log.createdAt + 'Z').toLocaleString('vi-VN')}
+                        </td>
+                        <td className="p-2">
+                          <div className="font-medium text-gray-900">{log.userName}</div>
+                          <div className="text-xs text-gray-500">{log.userEmail}</div>
+                        </td>
+                        <td className="p-2">
+                          <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                            log.action.includes('Xóa') ? 'bg-red-100 text-red-700' :
+                            log.action.includes('Đăng nhập') ? 'bg-blue-100 text-blue-700' :
+                            log.action.includes('Chỉnh sửa') ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-green-100 text-green-700'
+                          }`}>
+                            {log.action}
+                          </span>
+                        </td>
+                        <td className="p-2 text-gray-600 max-w-[250px] truncate" title={log.detail}>
+                          {log.detail}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </div>
       )}
