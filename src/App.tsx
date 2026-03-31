@@ -1,34 +1,7 @@
-import { useState, useEffect } from 'react';
-import { db, handleFirestoreError, OperationType } from './firebase';
-import { collection, doc, onSnapshot, query, where, addDoc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
-import { format, addDays, subDays, startOfWeek, endOfWeek, isSameDay, parseISO, eachDayOfInterval, getDay, isBefore, isAfter, startOfDay, endOfDay } from 'date-fns';
+import { useState, useEffect, useCallback } from 'react';
+import { roomsApi, bookingsApi, type Room, type Booking } from './api';
+import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2 } from 'lucide-react';
-import { vi } from 'date-fns/locale';
-
-// Types
-interface Room {
-  id: string;
-  name: string;
-  capacity: number;
-  equipment?: string[];
-  color: string;
-  location?: string;
-  status?: string;
-}
-
-interface Booking {
-  id: string;
-  roomId: string;
-  userName: string;
-  userEmail: string;
-  project: string;
-  purpose: string;
-  startTime: string; // ISO
-  endTime: string; // ISO
-  date: string; // YYYY-MM-DD
-  repeatGroupId?: string;
-  color?: string;
-}
 
 interface UserProfile {
   name: string;
@@ -88,30 +61,16 @@ export default function App() {
     onConfirm: () => void;
   }>({ isOpen: false, title: '', message: '', onConfirm: () => {} });
 
-  useEffect(() => {
-    // Load profile from local storage
-    const storedProfile = localStorage.getItem('meetingUserProfile');
-    if (storedProfile) {
-      setUserProfile(JSON.parse(storedProfile));
-    } else {
-      setIsProfileModalOpen(true);
+  const fetchRooms = useCallback(async () => {
+    try {
+      const data = await roomsApi.list();
+      setRooms(data);
+    } catch (e) {
+      console.error('Failed to fetch rooms:', e);
     }
-
-    // Fetch Rooms
-    const unsubscribeRooms = onSnapshot(collection(db, 'rooms'), (snapshot) => {
-      const roomsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Room));
-      setRooms(roomsData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'rooms');
-    });
-
-    return () => {
-      unsubscribeRooms();
-    };
   }, []);
 
-  useEffect(() => {
-    // Fetch Bookings based on view mode
+  const fetchBookings = useCallback(async () => {
     let startDate: Date;
     let endDate: Date;
 
@@ -126,24 +85,31 @@ export default function App() {
     const startStr = format(startDate, 'yyyy-MM-dd');
     const endStr = format(endDate, 'yyyy-MM-dd');
 
-    const q = query(
-      collection(db, 'bookings'), 
-      where('date', '>=', startStr),
-      where('date', '<=', endStr)
-    );
-
-    const unsubscribeBookings = onSnapshot(q, (snapshot) => {
-      const bookingsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Booking));
-      bookingsData.sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
-      setBookings(bookingsData);
-    }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'bookings');
-    });
-
-    return () => {
-      unsubscribeBookings();
-    };
+    try {
+      const data = await bookingsApi.list(startStr, endStr);
+      data.sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+      setBookings(data);
+    } catch (e) {
+      console.error('Failed to fetch bookings:', e);
+    }
   }, [selectedDate, viewMode]);
+
+  useEffect(() => {
+    const storedProfile = localStorage.getItem('meetingUserProfile');
+    if (storedProfile) {
+      setUserProfile(JSON.parse(storedProfile));
+    } else {
+      setIsProfileModalOpen(true);
+    }
+    fetchRooms();
+  }, [fetchRooms]);
+
+  useEffect(() => {
+    fetchBookings();
+    // Poll every 30 seconds for near-realtime updates
+    const interval = setInterval(fetchBookings, 30000);
+    return () => clearInterval(interval);
+  }, [fetchBookings]);
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
@@ -185,7 +151,6 @@ export default function App() {
       const endIso = `${bDate}T${bEndTime}:00`;
 
       if (editingBooking) {
-        // Update Booking
         if (checkOverlap(bRoomId, startIso, endIso, bDate, editingBooking.id)) {
           alert("Khung giờ này đã có người đặt.");
           return;
@@ -205,9 +170,8 @@ export default function App() {
           updatedBooking.color = '';
         }
 
-        await updateDoc(doc(db, 'bookings', editingBooking.id), updatedBooking);
+        await bookingsApi.update(editingBooking.id, updatedBooking);
       } else {
-        // Create Booking
         if (!isRepeat) {
           if (checkOverlap(bRoomId, startIso, endIso, bDate)) {
             alert("Khung giờ này đã có người đặt.");
@@ -228,9 +192,8 @@ export default function App() {
             newBooking.color = bColor;
           }
 
-          await addDoc(collection(db, 'bookings'), newBooking);
+          await bookingsApi.create(newBooking);
         } else {
-          // Repeating Booking
           if (repeatDays.length === 0) {
             alert("Vui lòng chọn ít nhất 1 ngày trong tuần để lặp lại.");
             return;
@@ -238,7 +201,7 @@ export default function App() {
 
           const startDate = parseISO(bDate);
           const endDate = parseISO(repeatEndDate);
-          
+
           if (isAfter(startDate, endDate)) {
             alert("Ngày kết thúc lặp lại phải sau ngày bắt đầu.");
             return;
@@ -253,8 +216,8 @@ export default function App() {
           }
 
           const repeatGroupId = `rep_${Date.now()}`;
-          const batch = writeBatch(db);
           let hasOverlap = false;
+          const batchBookings: any[] = [];
 
           for (const date of daysToBook) {
             const dateStr = format(date, 'yyyy-MM-dd');
@@ -266,7 +229,6 @@ export default function App() {
               break;
             }
 
-            const newBookingRef = doc(collection(db, 'bookings'));
             const newBooking: any = {
               roomId: bRoomId,
               userName: userProfile.name,
@@ -281,7 +243,7 @@ export default function App() {
             if (isAdmin && bColor) {
               newBooking.color = bColor;
             }
-            batch.set(newBookingRef, newBooking);
+            batchBookings.push(newBooking);
           }
 
           if (hasOverlap) {
@@ -289,19 +251,20 @@ export default function App() {
             return;
           }
 
-          await batch.commit();
+          await bookingsApi.create(batchBookings);
         }
       }
 
-      // Reset form
       setIsBookingModalOpen(false);
       setEditingBooking(null);
       setBProject('');
       setBPurpose('');
       setIsRepeat(false);
       setRepeatDays([]);
+      fetchBookings();
     } catch (error) {
-      handleFirestoreError(error, editingBooking ? OperationType.UPDATE : OperationType.CREATE, 'bookings');
+      console.error('Booking error:', error);
+      alert('Có lỗi xảy ra. Vui lòng thử lại.');
     }
   };
 
@@ -312,10 +275,11 @@ export default function App() {
       message: 'Bạn có chắc chắn muốn xóa lịch đặt phòng này?',
       onConfirm: async () => {
         try {
-          await deleteDoc(doc(db, 'bookings', bookingId));
+          await bookingsApi.delete(bookingId);
           setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          fetchBookings();
         } catch (error) {
-          handleFirestoreError(error, OperationType.DELETE, 'bookings');
+          console.error('Delete booking error:', error);
         }
       }
     });
@@ -369,9 +333,9 @@ export default function App() {
       };
 
       if (editingRoom) {
-        await updateDoc(doc(db, 'rooms', editingRoom.id), roomData);
+        await roomsApi.update(editingRoom.id, roomData);
       } else {
-        await addDoc(collection(db, 'rooms'), roomData);
+        await roomsApi.create(roomData as Omit<Room, 'id'>);
       }
 
       setEditingRoom(null);
@@ -380,8 +344,10 @@ export default function App() {
       setRLocation('');
       setRStatus('Đang hoạt động');
       setRColor('#3b82f6');
+      fetchRooms();
     } catch (error) {
-      handleFirestoreError(error, editingRoom ? OperationType.UPDATE : OperationType.CREATE, 'rooms');
+      console.error('Room save error:', error);
+      alert('Có lỗi xảy ra. Vui lòng thử lại.');
     }
   };
 
@@ -392,10 +358,11 @@ export default function App() {
       message: 'Bạn có chắc chắn muốn xóa phòng họp này?',
       onConfirm: async () => {
         try {
-          await deleteDoc(doc(db, 'rooms', roomId));
+          await roomsApi.delete(roomId);
           setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+          fetchRooms();
         } catch (error) {
-          handleFirestoreError(error, OperationType.DELETE, 'rooms');
+          console.error('Delete room error:', error);
         }
       }
     });
@@ -419,7 +386,6 @@ export default function App() {
     }
   };
 
-  // Seed some rooms if empty
   const seedRooms = async () => {
     const sampleRooms = [
       { name: '01 - Chiến lược', capacity: 0, color: '#ef4444', location: 'VP01 tầng 2', status: 'Đang triển khai hoán cải' },
@@ -431,10 +397,11 @@ export default function App() {
 
     try {
       for (const room of sampleRooms) {
-        await addDoc(collection(db, 'rooms'), room);
+        await roomsApi.create(room as Omit<Room, 'id'>);
       }
+      fetchRooms();
     } catch (error) {
-      handleFirestoreError(error, OperationType.CREATE, 'rooms');
+      console.error('Seed rooms error:', error);
     }
   };
 

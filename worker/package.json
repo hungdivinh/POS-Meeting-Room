@@ -1,0 +1,17 @@
+{
+  "name": "dat-phong-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:create": "wrangler d1 create dat-phong-db",
+    "db:migrate": "wrangler d1 execute dat-phong-db --file=./schema.sql",
+    "db:migrate:local": "wrangler d1 execute dat-phong-db --local --file=./schema.sql"
+  },
+  "devDependencies": {
+    "wrangler": "^3.99.0",
+    "@cloudflare/workers-types": "^4.20241230.0",
+    "typescript": "^5.8.0"
+  }
+}
