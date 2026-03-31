@@ -19,7 +19,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  const isAdmin = userProfile?.phone.includes('admin-pos') || false;
+  const isAdmin = userProfile?.phone?.includes('admin-pos') || false;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -102,7 +102,14 @@ export default function App() {
   useEffect(() => {
     const storedProfile = localStorage.getItem('meetingUserProfile');
     if (storedProfile) {
-      setUserProfile(JSON.parse(storedProfile));
+      const parsed = JSON.parse(storedProfile);
+      if (parsed.phone) {
+        setUserProfile(parsed);
+      } else {
+        // Old profile format (had email), force re-login
+        localStorage.removeItem('meetingUserProfile');
+        setIsProfileModalOpen(true);
+      }
     } else {
       setIsProfileModalOpen(true);
     }
