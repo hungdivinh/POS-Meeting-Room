@@ -19,7 +19,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  const isAdmin = userProfile?.phone?.includes('admin-pos') || false;
+  const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '2026') || false;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -42,8 +42,10 @@ export default function App() {
   
   // Repeat Form
   const [isRepeat, setIsRepeat] = useState(false);
+  const [repeatMode, setRepeatMode] = useState<'week' | 'month'>('week');
   const [repeatDays, setRepeatDays] = useState<number[]>([]);
-  const [repeatEndDate, setRepeatEndDate] = useState(format(addDays(new Date(), 7), 'yyyy-MM-dd'));
+  const [repeatMonthDays, setRepeatMonthDays] = useState<number[]>([]);
+  const [repeatEndDate, setRepeatEndDate] = useState(format(addDays(new Date(), 30), 'yyyy-MM-dd'));
 
   // Room Form
   const [editingRoom, setEditingRoom] = useState<Room | null>(null);
@@ -152,6 +154,11 @@ export default function App() {
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
     if (!profileName || !profilePhone) return;
+    const isAdminLogin = profileName === 'admin-pos' && profilePhone === '2026';
+    if (!isAdminLogin && (profilePhone.length < 10 || profilePhone.length > 11)) {
+      alert('Số điện thoại phải có 10-11 số');
+      return;
+    }
 
     const profile = { name: profileName, phone: profilePhone };
     localStorage.setItem('meetingUserProfile', JSON.stringify(profile));
@@ -235,8 +242,12 @@ export default function App() {
 
           await bookingsApi.create(newBooking);
         } else {
-          if (repeatDays.length === 0) {
+          if (repeatMode === 'week' && repeatDays.length === 0) {
             alert("Vui lòng chọn ít nhất 1 ngày trong tuần để lặp lại.");
+            return;
+          }
+          if (repeatMode === 'month' && repeatMonthDays.length === 0) {
+            alert("Vui lòng chọn ít nhất 1 ngày trong tháng để lặp lại.");
             return;
           }
 
@@ -248,8 +259,10 @@ export default function App() {
             return;
           }
 
-          const daysToBook = eachDayOfInterval({ start: startDate, end: endDate })
-            .filter(date => repeatDays.includes(getDay(date)));
+          const allDays = eachDayOfInterval({ start: startDate, end: endDate });
+          const daysToBook = repeatMode === 'week'
+            ? allDays.filter(date => repeatDays.includes(getDay(date)))
+            : allDays.filter(date => repeatMonthDays.includes(date.getDate()));
 
           if (daysToBook.length === 0) {
             alert("Không có ngày nào phù hợp trong khoảng thời gian đã chọn.");
@@ -310,7 +323,9 @@ export default function App() {
       setBProject('');
       setBPurpose('');
       setIsRepeat(false);
+      setRepeatMode('week');
       setRepeatDays([]);
+      setRepeatMonthDays([]);
       fetchBookings();
     } catch (error) {
       console.error('Booking error:', error);
@@ -318,24 +333,60 @@ export default function App() {
     }
   };
 
+  const [deleteChainDialog, setDeleteChainDialog] = useState<{
+    isOpen: boolean;
+    bookingId: string;
+    roomName: string;
+    booking: Booking | null;
+  }>({ isOpen: false, bookingId: '', roomName: '', booking: null });
+
   const handleDeleteBooking = (bookingId: string) => {
-    const booking = bookings.find(b => b.id === bookingId);
+    const booking = bookings.find(b => b.id === bookingId) || null;
     const roomName = rooms.find(r => r.id === booking?.roomId)?.name || '';
-    setConfirmDialog({
-      isOpen: true,
-      title: 'Xóa lịch đặt phòng',
-      message: 'Bạn có chắc chắn muốn xóa lịch đặt phòng này?',
-      onConfirm: async () => {
-        try {
-          await bookingsApi.delete(bookingId);
-          logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Ngày: ${booking?.date}`);
-          setConfirmDialog(prev => ({ ...prev, isOpen: false }));
-          fetchBookings();
-        } catch (error) {
-          console.error('Delete booking error:', error);
+
+    if (booking?.repeatGroupId) {
+      setDeleteChainDialog({ isOpen: true, bookingId, roomName, booking });
+    } else {
+      setConfirmDialog({
+        isOpen: true,
+        title: 'Xóa lịch đặt phòng',
+        message: 'Bạn có chắc chắn muốn xóa lịch đặt phòng này?',
+        onConfirm: async () => {
+          try {
+            await bookingsApi.delete(bookingId);
+            logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Ngày: ${booking?.date}`);
+            setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+            fetchBookings();
+          } catch (error) {
+            console.error('Delete booking error:', error);
+          }
         }
-      }
-    });
+      });
+    }
+  };
+
+  const handleDeleteSingle = async () => {
+    const { bookingId, roomName, booking } = deleteChainDialog;
+    try {
+      await bookingsApi.delete(bookingId);
+      logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Ngày: ${booking?.date}`);
+      setDeleteChainDialog(prev => ({ ...prev, isOpen: false }));
+      fetchBookings();
+    } catch (error) {
+      console.error('Delete booking error:', error);
+    }
+  };
+
+  const handleDeleteChain = async () => {
+    const { bookingId, roomName, booking } = deleteChainDialog;
+    try {
+      await bookingsApi.deleteGroup(bookingId);
+      logActivity('Xóa chuỗi đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Chuỗi: ${booking?.repeatGroupId}`);
+      setDeleteChainDialog(prev => ({ ...prev, isOpen: false }));
+      fetchBookings();
+    } catch (error) {
+      console.error('Delete chain error:', error);
+    }
   };
 
   const toggleRepeatDay = (day: number) => {
@@ -934,11 +985,19 @@ export default function App() {
                   <input
                     type="tel"
                     required
+                    pattern="[0-9]{10,11}"
+                    maxLength={11}
                     value={profilePhone}
-                    onChange={(e) => setProfilePhone(e.target.value)}
+                    onChange={(e) => {
+                      const val = e.target.value.replace(/\D/g, '');
+                      setProfilePhone(val);
+                    }}
                     className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition"
                     placeholder="VD: 0901234567"
                   />
+                  {profilePhone && (profilePhone.length < 10 || profilePhone.length > 11) && (
+                    <p className="text-red-500 text-xs mt-1">Số điện thoại phải có 10-11 số</p>
+                  )}
                 </div>
               </div>
               <button 
@@ -1077,40 +1136,98 @@ export default function App() {
                 {!editingBooking && (
                   <div className="border-t border-gray-200 pt-4 mt-2">
                     <label className="flex items-center gap-2 cursor-pointer mb-3">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={isRepeat}
                         onChange={(e) => setIsRepeat(e.target.checked)}
                         className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
                       />
-                      <span className="text-sm font-medium text-gray-700">Lặp lại hàng tuần</span>
+                      <span className="text-sm font-medium text-gray-700">Lặp lại</span>
                     </label>
 
                     {isRepeat && (
                       <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
+                        {/* Mode toggle */}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-2">Lặp lại vào các ngày:</label>
-                          <div className="flex flex-wrap gap-2">
-                            {DAYS_OF_WEEK.map((day, index) => (
-                              <button
-                                key={day}
-                                type="button"
-                                onClick={() => toggleRepeatDay(day)}
-                                className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
-                                  repeatDays.includes(day) 
-                                    ? 'bg-blue-600 text-white border-blue-600' 
-                                    : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
-                                }`}
-                              >
-                                {DAY_NAMES[index]}
-                              </button>
-                            ))}
+                          <label className="block text-sm font-medium text-gray-700 mb-2">Kiểu lặp lại:</label>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => setRepeatMode('week')}
+                              className={`px-4 py-1.5 text-sm rounded-md border transition-colors ${
+                                repeatMode === 'week' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                              }`}
+                            >
+                              Tuần
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setRepeatMode('month')}
+                              className={`px-4 py-1.5 text-sm rounded-md border transition-colors ${
+                                repeatMode === 'month' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                              }`}
+                            >
+                              Tháng
+                            </button>
                           </div>
                         </div>
+
+                        {/* Weekly: pick days of week */}
+                        {repeatMode === 'week' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Lặp lại vào các thứ:</label>
+                            <div className="flex flex-wrap gap-2">
+                              {DAYS_OF_WEEK.map((day, index) => (
+                                <button
+                                  key={day}
+                                  type="button"
+                                  onClick={() => toggleRepeatDay(day)}
+                                  className={`px-3 py-1.5 text-sm rounded-md border transition-colors ${
+                                    repeatDays.includes(day)
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {DAY_NAMES[index]}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Monthly: pick days of month */}
+                        {repeatMode === 'month' && (
+                          <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-2">Lặp lại vào các ngày trong tháng:</label>
+                            <div className="flex flex-wrap gap-1.5">
+                              {Array.from({ length: 31 }, (_, i) => i + 1).map(day => (
+                                <button
+                                  key={day}
+                                  type="button"
+                                  onClick={() => {
+                                    if (repeatMonthDays.includes(day)) {
+                                      setRepeatMonthDays(repeatMonthDays.filter(d => d !== day));
+                                    } else {
+                                      setRepeatMonthDays([...repeatMonthDays, day]);
+                                    }
+                                  }}
+                                  className={`w-9 h-9 text-sm rounded-md border transition-colors ${
+                                    repeatMonthDays.includes(day)
+                                      ? 'bg-blue-600 text-white border-blue-600'
+                                      : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'
+                                  }`}
+                                >
+                                  {day}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+
                         <div>
                           <label className="block text-sm font-medium text-gray-700 mb-1">Lặp lại đến ngày:</label>
-                          <input 
-                            type="date" 
+                          <input
+                            type="date"
                             required={isRepeat}
                             value={repeatEndDate}
                             onChange={(e) => setRepeatEndDate(e.target.value)}
@@ -1348,6 +1465,37 @@ export default function App() {
                 </table>
               </div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Delete Chain Dialog */}
+      {deleteChainDialog.isOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6">
+            <h3 className="text-lg font-bold text-gray-900 mb-2">Xóa lịch đặt phòng</h3>
+            <p className="text-gray-600 mb-2">Khung giờ này thuộc một chuỗi lặp lại.</p>
+            <p className="text-gray-600 mb-6">Bạn muốn xóa chỉ khung giờ này hay xóa toàn bộ chuỗi?</p>
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleDeleteSingle}
+                className="w-full px-4 py-2.5 bg-orange-500 text-white font-medium hover:bg-orange-600 rounded-lg transition shadow-sm"
+              >
+                Xóa chỉ khung giờ này
+              </button>
+              <button
+                onClick={handleDeleteChain}
+                className="w-full px-4 py-2.5 bg-red-600 text-white font-medium hover:bg-red-700 rounded-lg transition shadow-sm"
+              >
+                Xóa toàn bộ chuỗi
+              </button>
+              <button
+                onClick={() => setDeleteChainDialog(prev => ({ ...prev, isOpen: false }))}
+                className="w-full px-4 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+              >
+                Hủy
+              </button>
+            </div>
           </div>
         </div>
       )}

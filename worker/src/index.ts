@@ -144,8 +144,25 @@ export default {
 
       if (path.match(/^\/api\/bookings\/[\w-]+$/) && method === 'DELETE') {
         const id = path.split('/').pop()!;
+        const deleteGroup = url.searchParams.get('deleteGroup') === 'true';
+
+        if (deleteGroup) {
+          // Find the booking to get its repeatGroupId
+          const { results } = await env.DB.prepare(
+            'SELECT repeat_group_id FROM bookings WHERE id = ?'
+          ).bind(id).all();
+          const groupId = results[0]?.repeat_group_id;
+          if (groupId) {
+            const countResult = await env.DB.prepare(
+              'SELECT COUNT(*) as count FROM bookings WHERE repeat_group_id = ?'
+            ).bind(groupId).all();
+            await env.DB.prepare('DELETE FROM bookings WHERE repeat_group_id = ?').bind(groupId).run();
+            return json({ success: true, deletedCount: (countResult.results[0] as any)?.count || 0 });
+          }
+        }
+
         await env.DB.prepare('DELETE FROM bookings WHERE id = ?').bind(id).run();
-        return json({ success: true });
+        return json({ success: true, deletedCount: 1 });
       }
 
       // === ACTIVITY LOGS ===

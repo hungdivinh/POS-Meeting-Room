@@ -54,6 +54,7 @@ export const bookingsApi = {
   update: (id: string, data: Partial<Booking>) =>
     request<Booking>(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   delete: (id: string) => request<{ success: boolean }>(`/api/bookings/${id}`, { method: 'DELETE' }),
+  deleteGroup: (id: string) => request<{ success: boolean; deletedCount: number }>(`/api/bookings/${id}?deleteGroup=true`, { method: 'DELETE' }),
 };
 
 // Activity Logs
