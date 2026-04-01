@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { roomsApi, bookingsApi, logsApi, type Room, type Booking, type ActivityLog } from './api';
+import { roomsApi, bookingsApi, logsApi, needsApi, type Room, type Booking, type ActivityLog, type Need } from './api';
 import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2, ClipboardList } from 'lucide-react';
 
@@ -39,7 +39,16 @@ export default function App() {
   const [bStartTime, setBStartTime] = useState('08:00');
   const [bEndTime, setBEndTime] = useState('09:00');
   const [bColor, setBColor] = useState('');
-  
+  const [selectedNeeds, setSelectedNeeds] = useState<string[]>([]);
+  const [showNeeds, setShowNeeds] = useState(false);
+
+  // Needs
+  const [needs, setNeeds] = useState<Need[]>([]);
+  const [editingNeed, setEditingNeed] = useState<Need | null>(null);
+  const [nName, setNName] = useState('');
+  const [nColor, setNColor] = useState('#fbbf24');
+  const [adminTab, setAdminTab] = useState<'rooms' | 'needs'>('rooms');
+
   // Repeat Form
   const [isRepeat, setIsRepeat] = useState(false);
   const [repeatMode, setRepeatMode] = useState<'week' | 'month'>('week');
@@ -74,6 +83,15 @@ export default function App() {
       setRooms(data);
     } catch (e) {
       console.error('Failed to fetch rooms:', e);
+    }
+  }, []);
+
+  const fetchNeeds = useCallback(async () => {
+    try {
+      const data = await needsApi.list();
+      setNeeds(data);
+    } catch (e) {
+      console.error('Failed to fetch needs:', e);
     }
   }, []);
 
@@ -116,7 +134,8 @@ export default function App() {
       setIsProfileModalOpen(true);
     }
     fetchRooms();
-  }, [fetchRooms]);
+    fetchNeeds();
+  }, [fetchRooms, fetchNeeds]);
 
   useEffect(() => {
     fetchBookings();
@@ -134,6 +153,14 @@ export default function App() {
       return a.name.localeCompare(b.name, 'vi');
     });
   }, [rooms]);
+
+  const getBookingColors = useCallback((booking: Booking): string[] => {
+    if (booking.needIds && booking.needIds.length > 0) {
+      return booking.needIds.map(nid => needs.find(n => n.id === nid)?.color).filter(Boolean) as string[];
+    }
+    if (booking.color) return [booking.color];
+    return ['#fef08a']; // default yellow
+  }, [needs]);
 
   const logActivity = useCallback((action: string, detail?: string) => {
     if (!userProfile) return;
@@ -209,13 +236,10 @@ export default function App() {
           purpose: bPurpose,
           startTime: startIso,
           endTime: endIso,
-          date: bDate
+          date: bDate,
+          needIds: selectedNeeds,
+          color: isAdmin && bColor ? bColor : ''
         };
-        if (isAdmin && bColor) {
-          updatedBooking.color = bColor;
-        } else if (isAdmin && !bColor) {
-          updatedBooking.color = '';
-        }
 
         await bookingsApi.update(editingBooking.id, updatedBooking);
       } else {
@@ -234,11 +258,10 @@ export default function App() {
             purpose: bPurpose,
             startTime: startIso,
             endTime: endIso,
-            date: bDate
+            date: bDate,
+            needIds: selectedNeeds,
+            color: isAdmin && bColor ? bColor : ''
           };
-          if (isAdmin && bColor) {
-            newBooking.color = bColor;
-          }
 
           await bookingsApi.create(newBooking);
         } else {
@@ -292,11 +315,10 @@ export default function App() {
               startTime: startIso,
               endTime: endIso,
               date: dateStr,
-              repeatGroupId: repeatGroupId
+              repeatGroupId: repeatGroupId,
+              needIds: selectedNeeds,
+              color: isAdmin && bColor ? bColor : ''
             };
-            if (isAdmin && bColor) {
-              newBooking.color = bColor;
-            }
             batchBookings.push(newBooking);
           }
 
@@ -326,6 +348,9 @@ export default function App() {
       setRepeatMode('week');
       setRepeatDays([]);
       setRepeatMonthDays([]);
+      setSelectedNeeds([]);
+      setShowNeeds(false);
+      setBColor('');
       fetchBookings();
     } catch (error) {
       console.error('Booking error:', error);
@@ -419,6 +444,9 @@ export default function App() {
     setBEndTime(format(parseISO(booking.endTime), 'HH:mm'));
     setBProject(booking.project);
     setBPurpose(booking.purpose);
+    setBColor(booking.color || '');
+    setSelectedNeeds(booking.needIds || []);
+    setShowNeeds((booking.needIds || []).length > 0);
     setIsRepeat(false);
     setIsBookingModalOpen(true);
   };
@@ -599,18 +627,23 @@ export default function App() {
 
                       const isOwner = booking.userPhone === userProfile?.phone;
                       const canEdit = isOwner || isAdmin;
+                      const colors = getBookingColors(booking);
+                      const bgStyle = colors.length === 1
+                        ? { backgroundColor: colors[0] }
+                        : { background: `linear-gradient(to right, ${colors.map((c, i) => `${c} ${(i/colors.length)*100}%, ${c} ${((i+1)/colors.length)*100}%`).join(', ')})` };
+                      const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
 
                       return (
-                        <div 
+                        <div
                           key={booking.id}
                           onClick={() => room.status?.includes('hoạt động') && openBookingModalWithDefaults(room.id, format(selectedDate, 'yyyy-MM-dd'), Math.floor(startHour))}
-                          className={`absolute top-1 bottom-1 rounded-md shadow-sm border p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden ${!booking.color ? 'bg-yellow-50 border-yellow-200' : ''} ${room.status?.includes('hoạt động') ? 'cursor-pointer hover:shadow-md hover:border-yellow-400' : ''}`}
+                          className={`absolute top-1 bottom-1 rounded-md shadow-sm border border-gray-200 p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden ${room.status?.includes('hoạt động') ? 'cursor-pointer hover:shadow-md' : ''}`}
                           style={{
                             left: `${leftPercent}%`,
                             width: `calc(${widthPercent}% - 4px)`,
-                            ...(booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {})
+                            ...bgStyle
                           }}
-                          title={`${format(bStart, 'HH:mm')} - ${format(bEnd, 'HH:mm')}: ${booking.userName} (${booking.userPhone})${booking.project ? '\nDA: ' + booking.project : ''}${booking.purpose ? '\n' + booking.purpose : ''}`}
+                          title={`${format(bStart, 'HH:mm')} - ${format(bEnd, 'HH:mm')}: ${booking.userName} (${booking.userPhone})${booking.project ? '\nDA: ' + booking.project : ''}${booking.purpose ? '\n' + booking.purpose : ''}${needNames.length ? '\nNhu cầu: ' + needNames.join(', ') : ''}`}
                         >
                           <div className="text-xs font-semibold text-gray-900 truncate">
                             {format(bStart, 'HH:mm')}-{format(bEnd, 'HH:mm')}: {booking.userName}
@@ -620,9 +653,10 @@ export default function App() {
                           </div>
                           {booking.project && <div className="text-xs text-gray-700 truncate">DA: {booking.project}</div>}
                           {booking.purpose && <div className="text-xs text-gray-600 truncate">{booking.purpose}</div>}
+                          {needNames.length > 0 && <div className="text-xs text-gray-800 truncate font-medium">NC: {needNames.join(', ')}</div>}
                           
                           {canEdit && (
-                            <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-50/90' : 'bg-white/50'}`}>
+                            <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
                               <button 
                                 type="button"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
@@ -730,20 +764,26 @@ export default function App() {
                                 const bEnd = parseISO(booking.endTime);
                                 const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
-                                
+                                const wColors = getBookingColors(booking);
+                                const wBgStyle = wColors.length === 1
+                                  ? { backgroundColor: wColors[0] }
+                                  : { background: `linear-gradient(to right, ${wColors.map((c, i) => `${c} ${(i/wColors.length)*100}%, ${c} ${((i+1)/wColors.length)*100}%`).join(', ')})` };
+                                const wNeedNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+
                                 return (
-                                  <div 
-                                    key={booking.id} 
-                                    className={`mb-1 p-1.5 border rounded text-xs relative group/booking ${!booking.color ? 'bg-yellow-50 border-yellow-200' : ''} ${canEdit ? 'hover:shadow-md hover:border-yellow-400' : ''}`}
-                                    style={booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {}}
+                                  <div
+                                    key={booking.id}
+                                    className={`mb-1 p-1.5 border border-gray-200 rounded text-xs relative group/booking ${canEdit ? 'hover:shadow-md' : ''}`}
+                                    style={wBgStyle}
                                   >
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
                                       {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
                                     </div>
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
+                                    {wNeedNames.length > 0 && <div className="text-gray-800 font-medium">NC: {wNeedNames.join(', ')}</div>}
                                     {canEdit && (
-                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-50/90' : 'bg-white/50'}`}>
+                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
                                         <button 
                                           type="button"
                                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
@@ -1117,16 +1157,16 @@ export default function App() {
                 {/* Color Picker (Admin Only) */}
                 {isAdmin && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Màu hiển thị (Tùy chọn)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Màu hiển thị (Tùy chọn - Admin)</label>
                     <div className="flex items-center gap-3">
-                      <input 
-                        type="color" 
+                      <input
+                        type="color"
                         value={bColor || '#fef08a'}
                         onChange={(e) => setBColor(e.target.value)}
                         className="w-10 h-10 p-1 border border-gray-300 rounded cursor-pointer"
                       />
-                      <button 
-                        type="button" 
+                      <button
+                        type="button"
                         onClick={() => setBColor('')}
                         className="text-sm text-gray-500 hover:text-gray-700 underline"
                       >
@@ -1136,10 +1176,19 @@ export default function App() {
                   </div>
                 )}
 
-                {/* Repeat (Only for new bookings) */}
-                {!editingBooking && (
-                  <div className="border-t border-gray-200 pt-4 mt-2">
-                    <label className="flex items-center gap-2 cursor-pointer mb-3">
+                {/* Needs + Repeat checkboxes */}
+                <div className="border-t border-gray-200 pt-4 mt-2 flex gap-6">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={showNeeds}
+                      onChange={(e) => { setShowNeeds(e.target.checked); if (!e.target.checked) setSelectedNeeds([]); }}
+                      className="w-4 h-4 text-blue-600 rounded focus:ring-blue-500"
+                    />
+                    <span className="text-sm font-medium text-gray-700">Nhu cầu</span>
+                  </label>
+                  {!editingBooking && (
+                    <label className="flex items-center gap-2 cursor-pointer">
                       <input
                         type="checkbox"
                         checked={isRepeat}
@@ -1148,8 +1197,42 @@ export default function App() {
                       />
                       <span className="text-sm font-medium text-gray-700">Lặp lại</span>
                     </label>
+                  )}
+                </div>
 
-                    {isRepeat && (
+                {/* Needs Selection */}
+                {showNeeds && needs.length > 0 && (
+                  <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Chọn nhu cầu:</label>
+                    <div className="flex flex-wrap gap-2">
+                      {needs.map(need => (
+                        <button
+                          key={need.id}
+                          type="button"
+                          onClick={() => {
+                            if (selectedNeeds.includes(need.id)) {
+                              setSelectedNeeds(selectedNeeds.filter(id => id !== need.id));
+                            } else {
+                              setSelectedNeeds([...selectedNeeds, need.id]);
+                            }
+                          }}
+                          className={`px-3 py-1.5 text-sm rounded-md border transition-colors flex items-center gap-2 ${
+                            selectedNeeds.includes(need.id)
+                              ? 'border-gray-600 ring-2 ring-blue-400 font-semibold'
+                              : 'border-gray-300 hover:bg-gray-100'
+                          }`}
+                          style={{ backgroundColor: selectedNeeds.includes(need.id) ? need.color : undefined }}
+                        >
+                          <div className="w-3 h-3 rounded-full border border-gray-400" style={{ backgroundColor: need.color }}></div>
+                          {need.name}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Repeat Panel */}
+                {!editingBooking && isRepeat && (
                       <div className="bg-gray-50 p-4 rounded-lg border border-gray-200 space-y-4">
                         {/* Mode toggle */}
                         <div>
@@ -1241,8 +1324,6 @@ export default function App() {
                         </div>
                       </div>
                     )}
-                  </div>
-                )}
               </div>
 
               <div className="mt-8 flex justify-end gap-3">
@@ -1269,13 +1350,30 @@ export default function App() {
       {isRoomModalOpen && isAdmin && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 my-8 flex flex-col max-h-[90vh]">
-            <div className="flex justify-between items-center mb-6">
-              <h2 className="text-xl font-bold text-gray-900">Quản Lý Phòng Họp</h2>
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-xl font-bold text-gray-900">Quản lý</h2>
               <button onClick={() => setIsRoomModalOpen(false)} className="text-gray-400 hover:text-gray-600">
                 &times;
               </button>
             </div>
-            
+
+            {/* Tabs */}
+            <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit">
+              <button
+                onClick={() => setAdminTab('rooms')}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${adminTab === 'rooms' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Phòng họp
+              </button>
+              <button
+                onClick={() => setAdminTab('needs')}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${adminTab === 'needs' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Nhu cầu
+              </button>
+            </div>
+
+            {adminTab === 'rooms' && (
             <div className="flex gap-6 flex-1 min-h-0">
               {/* Room List */}
               <div className="w-1/2 border-r border-gray-200 pr-6 overflow-y-auto">
@@ -1408,6 +1506,123 @@ export default function App() {
                 </form>
               </div>
             </div>
+            )}
+
+            {adminTab === 'needs' && (
+            <div className="flex-1 overflow-y-auto">
+              <div className="flex gap-6">
+                {/* Needs List */}
+                <div className="w-1/2 border-r border-gray-200 pr-6">
+                  <h3 className="font-semibold text-gray-700 mb-4">Danh sách nhu cầu</h3>
+                  <div className="space-y-2">
+                    {needs.map(need => (
+                      <div key={need.id} className="flex items-center justify-between border border-gray-200 rounded-lg p-3 hover:border-blue-300">
+                        <div className="flex items-center gap-3">
+                          <div className="w-6 h-6 rounded-full border" style={{ backgroundColor: need.color }}></div>
+                          <span className="font-medium text-gray-900 text-sm">{need.name}</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => { setEditingNeed(need); setNName(need.name); setNColor(need.color); }}
+                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setConfirmDialog({
+                                isOpen: true,
+                                title: 'Xóa nhu cầu',
+                                message: `Bạn có chắc chắn muốn xóa "${need.name}"?`,
+                                onConfirm: async () => {
+                                  await needsApi.delete(need.id);
+                                  logActivity('Xóa nhu cầu', `Nhu cầu: ${need.name}`);
+                                  fetchNeeds();
+                                  setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+                                }
+                              });
+                            }}
+                            className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                    {needs.length === 0 && <div className="text-gray-500 text-sm">Chưa có nhu cầu nào.</div>}
+                  </div>
+                </div>
+
+                {/* Need Form */}
+                <div className="w-1/2 pl-2">
+                  <h3 className="font-semibold text-gray-700 mb-4">{editingNeed ? 'Sửa nhu cầu' : 'Thêm nhu cầu mới'}</h3>
+                  <form onSubmit={async (e) => {
+                    e.preventDefault();
+                    if (!nName) return;
+                    try {
+                      if (editingNeed) {
+                        await needsApi.update(editingNeed.id, { name: nName, color: nColor, sort_order: editingNeed.sort_order });
+                        logActivity('Chỉnh sửa nhu cầu', `Nhu cầu: ${nName}`);
+                      } else {
+                        await needsApi.create({ name: nName, color: nColor, sort_order: needs.length + 1 });
+                        logActivity('Tạo nhu cầu', `Nhu cầu: ${nName}, Màu: ${nColor}`);
+                      }
+                      setEditingNeed(null);
+                      setNName('');
+                      setNColor('#fbbf24');
+                      fetchNeeds();
+                    } catch (err) {
+                      console.error('Need save error:', err);
+                    }
+                  }} className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Tên nhu cầu <span className="text-red-500">*</span></label>
+                      <input
+                        type="text"
+                        required
+                        value={nName}
+                        onChange={(e) => setNName(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        placeholder="VD: Trái cây"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Màu sắc</label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="color"
+                          value={nColor}
+                          onChange={(e) => setNColor(e.target.value)}
+                          className="w-10 h-10 border-0 p-0 rounded cursor-pointer"
+                        />
+                        <span className="text-sm text-gray-500">{nColor}</span>
+                      </div>
+                    </div>
+                    <div className="pt-4 flex justify-end gap-3">
+                      {editingNeed && (
+                        <button
+                          type="button"
+                          onClick={() => { setEditingNeed(null); setNName(''); setNColor('#fbbf24'); }}
+                          className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+                        >
+                          Hủy sửa
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        className="px-4 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition shadow-sm"
+                      >
+                        {editingNeed ? 'Lưu thay đổi' : 'Thêm nhu cầu'}
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            </div>
+            )}
+
           </div>
         </div>
       )}

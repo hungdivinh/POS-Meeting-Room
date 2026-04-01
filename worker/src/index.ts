@@ -64,6 +64,36 @@ export default {
         return json({ success: true });
       }
 
+      // === NEEDS ===
+      if (path === '/api/needs' && method === 'GET') {
+        const { results } = await env.DB.prepare('SELECT * FROM needs ORDER BY sort_order').all();
+        return json(results);
+      }
+
+      if (path === '/api/needs' && method === 'POST') {
+        const body = await request.json<any>();
+        const id = crypto.randomUUID().replace(/-/g, '');
+        await env.DB.prepare(
+          'INSERT INTO needs (id, name, color, sort_order) VALUES (?, ?, ?, ?)'
+        ).bind(id, body.name, body.color, body.sort_order ?? 0).run();
+        return json({ id, ...body }, 201);
+      }
+
+      if (path.match(/^\/api\/needs\/[\w-]+$/) && method === 'PUT') {
+        const id = path.split('/').pop()!;
+        const body = await request.json<any>();
+        await env.DB.prepare(
+          'UPDATE needs SET name = ?, color = ?, sort_order = ? WHERE id = ?'
+        ).bind(body.name, body.color, body.sort_order ?? 0, id).run();
+        return json({ id, ...body });
+      }
+
+      if (path.match(/^\/api\/needs\/[\w-]+$/) && method === 'DELETE') {
+        const id = path.split('/').pop()!;
+        await env.DB.prepare('DELETE FROM needs WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
       // === BOOKINGS ===
       if (path === '/api/bookings' && method === 'GET') {
         const startDate = url.searchParams.get('startDate');
@@ -90,6 +120,7 @@ export default {
           date: r.date,
           repeatGroupId: r.repeat_group_id,
           color: r.color,
+          needIds: r.need_ids ? r.need_ids.split(',').filter(Boolean) : [],
         }));
         return json(mapped);
       }
@@ -104,7 +135,7 @@ export default {
         for (const item of items) {
           const id = crypto.randomUUID().replace(/-/g, '');
           await env.DB.prepare(
-            'INSERT INTO bookings (id, room_id, user_name, user_phone, project, purpose, start_time, end_time, date, repeat_group_id, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO bookings (id, room_id, user_name, user_phone, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             id,
             item.roomId,
@@ -116,7 +147,8 @@ export default {
             item.endTime,
             item.date,
             item.repeatGroupId ?? null,
-            item.color ?? ''
+            item.color ?? '',
+            Array.isArray(item.needIds) ? item.needIds.join(',') : (item.needIds ?? '')
           ).run();
           created.push({ id, ...item });
         }
@@ -128,7 +160,7 @@ export default {
         const id = path.split('/').pop()!;
         const body = await request.json<any>();
         await env.DB.prepare(
-          'UPDATE bookings SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ? WHERE id = ?'
+          'UPDATE bookings SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ? WHERE id = ?'
         ).bind(
           body.roomId,
           body.project ?? '',
@@ -137,6 +169,7 @@ export default {
           body.endTime,
           body.date,
           body.color ?? '',
+          Array.isArray(body.needIds) ? body.needIds.join(',') : (body.needIds ?? ''),
           id
         ).run();
         return json({ id, ...body });

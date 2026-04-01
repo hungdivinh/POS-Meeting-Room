@@ -35,7 +35,23 @@ export interface Booking {
   date: string;
   repeatGroupId?: string;
   color?: string;
+  needIds?: string[];
 }
+
+export interface Need {
+  id: string;
+  name: string;
+  color: string;
+  sort_order: number;
+}
+
+// Needs API
+export const needsApi = {
+  list: () => request<Need[]>('/api/needs'),
+  create: (data: Omit<Need, 'id'>) => request<Need>('/api/needs', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id: string, data: Partial<Need>) => request<Need>(`/api/needs/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  delete: (id: string) => request<{ success: boolean }>(`/api/needs/${id}`, { method: 'DELETE' }),
+};
 
 // Rooms API
 export const roomsApi = {
