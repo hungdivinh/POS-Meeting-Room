@@ -21,6 +21,70 @@ function error(message: string, status = 400): Response {
   return json({ error: message }, status);
 }
 
+const BOOKING_OVERLAP_ERROR = 'Khung giờ này đã có người đặt. Vui lòng chọn khung giờ khác.';
+
+interface BookingWriteInput {
+  roomId?: unknown;
+  date?: unknown;
+  startTime?: unknown;
+  endTime?: unknown;
+  userName?: unknown;
+  userPhone?: unknown;
+  project?: unknown;
+  purpose?: unknown;
+  repeatGroupId?: unknown;
+  color?: unknown;
+  needIds?: unknown;
+}
+
+function getBookingValidationError(input: BookingWriteInput, requireContact = false): string | null {
+  if (typeof input.roomId !== 'string' || !input.roomId.trim()) {
+    return 'Thiếu phòng họp.';
+  }
+
+  if (typeof input.date !== 'string' || !input.date.trim()) {
+    return 'Thiếu ngày đặt phòng.';
+  }
+
+  if (typeof input.startTime !== 'string' || typeof input.endTime !== 'string') {
+    return 'Thiếu khung giờ đặt phòng.';
+  }
+
+  if (!input.startTime.startsWith(`${input.date}T`) || !input.endTime.startsWith(`${input.date}T`)) {
+    return 'Ngày đặt phòng không khớp với khung giờ.';
+  }
+
+  if (input.startTime >= input.endTime) {
+    return 'Giờ kết thúc phải sau giờ bắt đầu.';
+  }
+
+  if (requireContact) {
+    if (typeof input.userName !== 'string' || !input.userName.trim()) {
+      return 'Thiếu tên người đặt.';
+    }
+
+    if (typeof input.userPhone !== 'string' || !input.userPhone.trim()) {
+      return 'Thiếu số điện thoại người đặt.';
+    }
+  }
+
+  return null;
+}
+
+function serializeNeedIds(needIds: unknown): string {
+  if (Array.isArray(needIds)) {
+    return needIds
+      .filter((id): id is string => typeof id === 'string' && id.length > 0)
+      .join(',');
+  }
+
+  return typeof needIds === 'string' ? needIds : '';
+}
+
+function getResultChanges(result: D1Result<unknown>): number {
+  return result.meta.changes ?? 0;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     if (request.method === 'OPTIONS') {
@@ -149,11 +213,28 @@ export default {
         // Support batch creation (array of bookings)
         const items: any[] = Array.isArray(body) ? body : [body];
         const created: any[] = [];
+        const session = env.DB.withSession('first-primary');
+
+        for (const item of items) {
+          const validationError = getBookingValidationError(item, true);
+          if (validationError) {
+            return error(validationError);
+          }
+        }
 
         for (const item of items) {
           const id = crypto.randomUUID().replace(/-/g, '');
-          await env.DB.prepare(
-            'INSERT INTO bookings (id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+          const result = await session.prepare(
+            `INSERT INTO bookings (id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+             WHERE NOT EXISTS (
+               SELECT 1
+               FROM bookings
+               WHERE room_id = ?
+                 AND date = ?
+                 AND start_time < ?
+                 AND end_time > ?
+             )`
           ).bind(
             id,
             item.roomId,
@@ -167,8 +248,25 @@ export default {
             item.date,
             item.repeatGroupId ?? null,
             item.color ?? '',
-            Array.isArray(item.needIds) ? item.needIds.join(',') : (item.needIds ?? '')
+            serializeNeedIds(item.needIds),
+            item.roomId,
+            item.date,
+            item.endTime,
+            item.startTime
           ).run();
+
+          if (getResultChanges(result) === 0) {
+            if (created.length > 0) {
+              await session.batch(
+                created.map((booking) =>
+                  session.prepare('DELETE FROM bookings WHERE id = ?').bind(booking.id)
+                )
+              );
+            }
+
+            return error(BOOKING_OVERLAP_ERROR, 409);
+          }
+
           created.push({ id, ...item });
         }
 
@@ -178,8 +276,25 @@ export default {
       if (path.match(/^\/api\/bookings\/[\w-]+$/) && method === 'PUT') {
         const id = path.split('/').pop()!;
         const body = await request.json<any>();
-        await env.DB.prepare(
-          'UPDATE bookings SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email) WHERE id = ?'
+        const validationError = getBookingValidationError(body);
+        if (validationError) {
+          return error(validationError);
+        }
+
+        const session = env.DB.withSession('first-primary');
+        const result = await session.prepare(
+          `UPDATE bookings
+           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
+           WHERE id = ?
+             AND NOT EXISTS (
+               SELECT 1
+               FROM bookings
+               WHERE id != ?
+                 AND room_id = ?
+                 AND date = ?
+                 AND start_time < ?
+                 AND end_time > ?
+             )`
         ).bind(
           body.roomId,
           body.project ?? '',
@@ -188,12 +303,27 @@ export default {
           body.endTime,
           body.date,
           body.color ?? '',
-          Array.isArray(body.needIds) ? body.needIds.join(',') : (body.needIds ?? ''),
+          serializeNeedIds(body.needIds),
           body.userName ?? null,
           body.userPhone ?? null,
           body.userPhone ?? null,
-          id
+          id,
+          id,
+          body.roomId,
+          body.date,
+          body.endTime,
+          body.startTime
         ).run();
+
+        if (getResultChanges(result) === 0) {
+          const existing = await session.prepare('SELECT id FROM bookings WHERE id = ?').bind(id).first();
+          if (!existing) {
+            return error('Booking not found', 404);
+          }
+
+          return error(BOOKING_OVERLAP_ERROR, 409);
+        }
+
         return json({ id, ...body });
       }
 

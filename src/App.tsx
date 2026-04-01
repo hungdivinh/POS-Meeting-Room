@@ -364,7 +364,10 @@ export default function App() {
       fetchBookings();
     } catch (error) {
       console.error('Booking error:', error);
-      alert('Có lỗi xảy ra. Vui lòng thử lại.');
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Có lỗi xảy ra. Vui lòng thử lại.';
+      alert(message);
     }
   };
 
@@ -569,10 +572,232 @@ export default function App() {
     }
   };
 
+  const renderMobileDayView = () => {
+    const dateStr = format(selectedDate, 'yyyy-MM-dd');
+
+    return (
+      <div className="space-y-3 md:hidden">
+        {sortedRooms.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
+            Chưa có phòng họp nào.
+          </div>
+        ) : (
+          sortedRooms.map(room => {
+            const isActive = room.status?.includes('hoạt động');
+            const dayBookings = bookings
+              .filter(b => b.roomId === room.id && b.date === dateStr)
+              .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+
+            return (
+              <section
+                key={room.id}
+                className={`rounded-2xl border border-gray-200 bg-white p-4 shadow-sm ${!isActive ? 'bg-gray-50 opacity-70' : ''}`}
+                style={{ borderLeft: `4px solid ${room.color}` }}
+              >
+                <div className="flex flex-col gap-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h2 className={`text-base font-semibold ${!isActive ? 'text-gray-500 line-through' : 'text-gray-900'}`}>
+                        {room.name}
+                      </h2>
+                      <div className="mt-1 flex flex-wrap gap-2 text-xs text-gray-600">
+                        {room.capacity > 0 && <span className="rounded-full bg-gray-100 px-2 py-1">Sức chứa: {room.capacity}</span>}
+                        {room.floor && <span className="rounded-full bg-gray-100 px-2 py-1">{room.floor}</span>}
+                        {room.building && <span className="rounded-full bg-gray-100 px-2 py-1">{room.building}</span>}
+                      </div>
+                      {room.location && <p className="mt-2 text-sm text-gray-600">{room.location}</p>}
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => isActive && openBookingModalWithDefaults(room.id, dateStr, 8)}
+                      disabled={!isActive}
+                      className={`shrink-0 rounded-full px-3 py-2 text-xs font-semibold transition ${
+                        isActive ? 'bg-blue-600 text-white hover:bg-blue-700' : 'bg-gray-200 text-gray-500'
+                      }`}
+                    >
+                      Đặt lịch
+                    </button>
+                  </div>
+
+                  <div className={`inline-flex w-fit rounded-full px-2.5 py-1 text-xs font-medium ${isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-gray-200 text-gray-600'}`}>
+                    {room.status || 'Chưa cài trạng thái'}
+                  </div>
+
+                  {dayBookings.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                      Chưa có lịch trong ngày này.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {dayBookings.map(booking => {
+                        const bStart = parseISO(booking.startTime);
+                        const bEnd = parseISO(booking.endTime);
+                        const isOwner = booking.userPhone === userProfile?.phone;
+                        const canEdit = isOwner || isAdmin;
+                        const colors = getBookingColors(booking);
+                        const bgStyle = colors.length === 1
+                          ? { backgroundColor: colors[0] }
+                          : { background: `linear-gradient(to right, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}%, ${c} ${((i + 1) / colors.length) * 100}%`).join(', ')})` };
+                        const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+
+                        return (
+                          <article key={booking.id} className="rounded-xl border border-gray-200 p-3 shadow-sm" style={bgStyle}>
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold text-gray-900">
+                                  {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
+                                </div>
+                                <div className="text-sm text-gray-800">{booking.userName}</div>
+                                <div className="text-xs text-gray-600">SĐT: {booking.userPhone}</div>
+                              </div>
+
+                              {canEdit && (
+                                <div className="flex shrink-0 gap-1 rounded-lg bg-white/80 p-1 shadow-sm">
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
+                                    className="rounded-md p-2 text-blue-600 hover:bg-blue-50"
+                                    title="Sửa"
+                                  >
+                                    <Edit2 size={14} />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteBooking(booking.id); }}
+                                    className="rounded-md p-2 text-red-600 hover:bg-red-50"
+                                    title="Xóa"
+                                  >
+                                    <Trash2 size={14} />
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+
+                            {(booking.project || booking.purpose || needNames.length > 0) && (
+                              <div className="mt-3 space-y-1 text-xs text-gray-700">
+                                {booking.project && <div className="break-words whitespace-normal">DA: {booking.project}</div>}
+                                {booking.purpose && <div className="break-words whitespace-normal">{booking.purpose}</div>}
+                                {needNames.length > 0 && <div className="break-words whitespace-normal font-medium">NC: {needNames.join(', ')}</div>}
+                              </div>
+                            )}
+                          </article>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          })
+        )}
+      </div>
+    );
+  };
+
+  const renderMobileWeekView = () => {
+    const weekStart = startOfWeek(selectedDate, { weekStartsOn: 1 });
+    const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
+
+    return (
+      <div className="space-y-3 md:hidden">
+        {weekDays.map((day, index) => {
+          const dateStr = format(day, 'yyyy-MM-dd');
+          const dayBookings = bookings
+            .filter(b => b.date === dateStr)
+            .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
+
+          return (
+            <section key={dateStr} className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="text-xs font-semibold uppercase tracking-wide text-blue-600">{DAY_NAMES[index]}</div>
+                  <div className="text-lg font-bold text-gray-900">{format(day, 'dd/MM/yyyy')}</div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => openBookingModalWithDefaults(undefined, dateStr, 8)}
+                  className="shrink-0 rounded-full bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700"
+                >
+                  Đặt lịch
+                </button>
+              </div>
+
+              {dayBookings.length === 0 ? (
+                <div className="mt-4 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+                  Chưa có lịch nào trong ngày này.
+                </div>
+              ) : (
+                <div className="mt-4 space-y-2">
+                  {dayBookings.map(booking => {
+                    const bStart = parseISO(booking.startTime);
+                    const bEnd = parseISO(booking.endTime);
+                    const isOwner = booking.userPhone === userProfile?.phone;
+                    const canEdit = isOwner || isAdmin;
+                    const room = rooms.find(r => r.id === booking.roomId);
+                    const colors = getBookingColors(booking);
+                    const bgStyle = colors.length === 1
+                      ? { backgroundColor: colors[0] }
+                      : { background: `linear-gradient(to right, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}%, ${c} ${((i + 1) / colors.length) * 100}%`).join(', ')})` };
+                    const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+
+                    return (
+                      <article key={booking.id} className="rounded-xl border border-gray-200 p-3 shadow-sm" style={bgStyle}>
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-sm font-semibold text-gray-900">
+                              {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
+                            </div>
+                            <div className="mt-1 text-sm text-gray-800">{room?.name || 'Phòng chưa xác định'}</div>
+                            <div className="text-xs text-gray-600">{booking.userName} - {booking.userPhone}</div>
+                          </div>
+
+                          {canEdit && (
+                            <div className="flex shrink-0 gap-1 rounded-lg bg-white/80 p-1 shadow-sm">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
+                                className="rounded-md p-2 text-blue-600 hover:bg-blue-50"
+                                title="Sửa"
+                              >
+                                <Edit2 size={14} />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteBooking(booking.id); }}
+                                className="rounded-md p-2 text-red-600 hover:bg-red-50"
+                                title="Xóa"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {(booking.project || booking.purpose || needNames.length > 0) && (
+                          <div className="mt-3 space-y-1 text-xs text-gray-700">
+                            {booking.project && <div className="break-words whitespace-normal">DA: {booking.project}</div>}
+                            {booking.purpose && <div className="break-words whitespace-normal">{booking.purpose}</div>}
+                            {needNames.length > 0 && <div className="break-words whitespace-normal font-medium">NC: {needNames.join(', ')}</div>}
+                          </div>
+                        )}
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          );
+        })}
+      </div>
+    );
+  };
+
   const renderDayView = () => {
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-        <div className="min-w-[1200px]">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto mobile-scroll">
+        <div className="min-w-[960px] xl:min-w-[1200px]">
           {/* Timeline Header */}
           <div className="flex border-b border-gray-200 bg-gray-50">
             <div className="w-48 shrink-0 border-r border-gray-200 p-4 font-bold text-blue-900 flex items-center justify-center uppercase">
@@ -683,7 +908,7 @@ export default function App() {
                           {needNames.length > 0 && <div className="text-xs text-gray-800 truncate font-medium">NC: {needNames.join(', ')}</div>}
                           
                           {canEdit && (
-                            <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
+                            <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
                               <button 
                                 type="button"
                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
@@ -720,8 +945,8 @@ export default function App() {
     const weekDays = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i));
 
     return (
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto">
-        <div className="min-w-[1200px]">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-x-auto mobile-scroll">
+        <div className="min-w-[960px] xl:min-w-[1200px]">
           {/* Header */}
           <div className="flex border-b border-gray-200 bg-gray-50">
             <div className="w-48 shrink-0 border-r border-gray-200 p-4 font-bold text-blue-900 flex items-center justify-center uppercase">
@@ -810,7 +1035,7 @@ export default function App() {
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
                                     {wNeedNames.length > 0 && <div className="text-gray-800 font-medium">NC: {wNeedNames.join(', ')}</div>}
                                     {canEdit && (
-                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
+                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
                                         <button 
                                           type="button"
                                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
@@ -880,7 +1105,7 @@ export default function App() {
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
                                     {canEdit && (
-                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-0 group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-100/90' : 'bg-white/50'}`}>
+                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-100/90' : 'bg-white/50'}`}>
                                         <button 
                                           type="button"
                                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
@@ -919,8 +1144,114 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-gray-100 flex flex-col font-sans">
-      {/* Header */}
-      <header className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between sticky top-0 z-30 shadow-sm">
+      {/* Mobile Header */}
+      <header className="md:hidden bg-white border-b border-gray-200 px-3 py-3 sticky top-0 z-30 shadow-sm">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h1 className="text-lg font-bold text-blue-900">Lịch Phòng Họp</h1>
+            <div className="mt-1 flex items-center gap-2 text-sm font-medium text-gray-600">
+              <div className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">
+                {userProfile?.name.charAt(0).toUpperCase() || <UserIcon size={14} />}
+              </div>
+              <span className="truncate">{userProfile?.name}</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleLogout}
+            className="shrink-0 rounded-md px-3 py-2 text-sm text-gray-500 underline transition hover:text-red-600"
+          >
+            Đổi TK
+          </button>
+        </div>
+
+        <div className="mt-3 space-y-2">
+          <div className="flex gap-2 rounded-lg bg-gray-100 p-1">
+            <button
+              onClick={() => setViewMode('day')}
+              className={`flex-1 justify-center px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${viewMode === 'day' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            >
+              <LayoutGrid size={16} /> Ngày
+            </button>
+            <button
+              onClick={() => setViewMode('week')}
+              className={`flex-1 justify-center px-3 py-2 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${viewMode === 'week' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+            >
+              <List size={16} /> Tuần
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 rounded-lg bg-gray-100 p-1">
+            <button
+              onClick={() => setSelectedDate(viewMode === 'day' ? subDays(selectedDate, 1) : subDays(selectedDate, 7))}
+              className="p-2 hover:bg-white rounded-md transition"
+            >
+              <ChevronLeft size={18} />
+            </button>
+            <div className="relative flex min-w-0 flex-1 items-center justify-center gap-2 px-3 py-2 font-medium text-gray-800 rounded-md hover:bg-gray-200 transition cursor-pointer">
+              <Calendar size={16} className="text-blue-600 shrink-0" />
+              <span className="truncate text-sm">
+                {viewMode === 'day'
+                  ? format(selectedDate, 'dd/MM/yyyy')
+                  : `Tuần ${format(startOfWeek(selectedDate, { weekStartsOn: 1 }), 'dd/MM')} - ${format(endOfWeek(selectedDate, { weekStartsOn: 1 }), 'dd/MM')}`
+                }
+              </span>
+              <input
+                type="date"
+                value={format(selectedDate, 'yyyy-MM-dd')}
+                onChange={(e) => {
+                  if (e.target.value) {
+                    setSelectedDate(parseISO(e.target.value));
+                  }
+                }}
+                className="date-picker-overlay"
+              />
+            </div>
+            <button
+              onClick={() => setSelectedDate(viewMode === 'day' ? addDays(selectedDate, 1) : addDays(selectedDate, 7))}
+              className="p-2 hover:bg-white rounded-md transition"
+            >
+              <ChevronRight size={18} />
+            </button>
+            <button
+              onClick={() => setSelectedDate(new Date())}
+              className="shrink-0 rounded-md px-2.5 py-2 text-xs font-medium text-blue-600 hover:bg-blue-50 transition"
+            >
+              Hôm nay
+            </button>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            {isAdmin && (
+              <>
+                <button
+                  onClick={() => { setIsLogModalOpen(true); fetchLogs(); }}
+                  className="text-sm bg-gray-100 text-gray-700 px-3 py-2 rounded-md font-medium hover:bg-gray-200 flex items-center gap-2"
+                >
+                  <ClipboardList size={16} /> Log
+                </button>
+                <button
+                  onClick={() => setIsRoomModalOpen(true)}
+                  className="text-sm bg-purple-100 text-purple-700 px-3 py-2 rounded-md font-medium hover:bg-purple-200 flex items-center gap-2"
+                >
+                  <Settings size={16} /> Quản lý
+                </button>
+              </>
+            )}
+            {rooms.length === 0 && (
+              <button
+                onClick={seedRooms}
+                className="text-sm bg-green-100 text-green-700 px-3 py-2 rounded-md font-medium hover:bg-green-200"
+              >
+                Tạo phòng mẫu
+              </button>
+            )}
+          </div>
+        </div>
+      </header>
+
+      {/* Desktop Header */}
+      <header className="hidden md:flex bg-white border-b border-gray-200 px-6 py-4 items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-6">
           <h1 className="text-2xl font-bold text-blue-900">Lịch Phòng Họp</h1>
           
@@ -1019,14 +1350,27 @@ export default function App() {
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-auto p-6">
-        {viewMode === 'day' ? renderDayView() : renderWeekView()}
+      <main className="safe-bottom-padding flex-1 overflow-auto p-3 md:p-6">
+        <div className="md:hidden">
+          {viewMode === 'day' ? renderMobileDayView() : renderMobileWeekView()}
+        </div>
+        <div className="hidden md:block">
+          {viewMode === 'day' ? renderDayView() : renderWeekView()}
+        </div>
       </main>
 
-      {/* Floating Action Button */}
+      {/* Floating Action Button - Mobile */}
       <button
         onClick={() => openBookingModalWithDefaults()}
-        className="fixed bottom-8 right-8 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-105 z-40"
+        className="md:hidden safe-fab-offset fixed right-4 w-12 h-12 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg flex items-center justify-center transition-transform hover:scale-105 z-40"
+      >
+        <Plus size={24} />
+      </button>
+
+      {/* Floating Action Button - Desktop */}
+      <button
+        onClick={() => openBookingModalWithDefaults()}
+        className="hidden md:flex fixed bottom-8 right-8 w-14 h-14 bg-blue-600 hover:bg-blue-700 text-white rounded-full shadow-lg items-center justify-center transition-transform hover:scale-105 z-40"
       >
         <Plus size={28} />
       </button>
@@ -1034,7 +1378,7 @@ export default function App() {
       {/* Profile Modal */}
       {isProfileModalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-8">
+          <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 sm:p-8">
             <h2 className="text-2xl font-bold text-gray-900 mb-2 text-center">Đăng ký sử dụng</h2>
             <p className="text-gray-500 text-center mb-6 text-sm">Vui lòng nhập thông tin để đặt phòng họp</p>
             
@@ -1085,7 +1429,7 @@ export default function App() {
       {/* Booking Modal */}
       {isBookingModalOpen && (
         <div className="fixed inset-0 bg-black/50 flex justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 my-8 h-fit">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-4 sm:p-6 my-4 sm:my-8 h-fit">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-900">{editingBooking ? 'Chỉnh Sửa Lịch Đặt' : 'Đặt Phòng Họp'}</h2>
               <button onClick={() => setIsBookingModalOpen(false)} className="text-gray-400 hover:text-gray-600">
@@ -1096,7 +1440,7 @@ export default function App() {
             <form onSubmit={handleSaveBooking}>
               <div className="space-y-4">
                 {/* User Info */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Người đặt</label>
                     <input type="text" value={bBookerName} onChange={(e) => setBBookerName(e.target.value)} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none' : 'border-gray-200 bg-gray-50 text-gray-500'}`} />
@@ -1108,7 +1452,7 @@ export default function App() {
                 </div>
 
                 {/* Project & Purpose */}
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Dự án</label>
                     <input 
@@ -1133,9 +1477,9 @@ export default function App() {
 
                 {/* Room with Location Filter */}
                 <div>
-                  <div className="flex items-center gap-4 mb-1">
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 mb-1">
                     <label className="block text-sm font-medium text-gray-700">Phòng họp <span className="text-red-500">*</span></label>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       {['VP1', 'VP2', 'Xưởng'].map(loc => (
                         <label key={loc} className="flex items-center gap-1 cursor-pointer">
                           <input
@@ -1171,7 +1515,7 @@ export default function App() {
                 </div>
 
                 {/* Date & Time */}
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Ngày <span className="text-red-500">*</span></label>
                     <input 
@@ -1227,7 +1571,7 @@ export default function App() {
                 )}
 
                 {/* Needs + Repeat checkboxes */}
-                <div className="border-t border-gray-200 pt-4 mt-2 flex gap-6">
+                <div className="border-t border-gray-200 pt-4 mt-2 flex flex-col sm:flex-row gap-3 sm:gap-6">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1369,24 +1713,24 @@ export default function App() {
                             value={repeatEndDate}
                             onChange={(e) => setRepeatEndDate(e.target.value)}
                             min={bDate}
-                            className="w-full max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                            className="w-full sm:max-w-[200px] border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                           />
                         </div>
                       </div>
                     )}
               </div>
 
-              <div className="mt-8 flex justify-end gap-3">
+              <div className="mt-8 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                 <button 
                   type="button"
                   onClick={() => setIsBookingModalOpen(false)}
-                  className="px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+                  className="w-full sm:w-auto px-5 py-2.5 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
                 >
                   Hủy
                 </button>
                 <button 
                   type="submit"
-                  className="px-5 py-2.5 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition shadow-sm"
+                  className="w-full sm:w-auto px-5 py-2.5 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition shadow-sm"
                 >
                   {editingBooking ? 'Lưu thay đổi' : 'Xác nhận đặt phòng'}
                 </button>
@@ -1399,7 +1743,7 @@ export default function App() {
       {/* Room Management Modal (Admin Only) */}
       {isRoomModalOpen && isAdmin && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-6 my-8 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-xl shadow-xl max-w-4xl w-full p-4 sm:p-6 my-4 sm:my-8 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900">Quản lý</h2>
               <button onClick={() => setIsRoomModalOpen(false)} className="text-gray-400 hover:text-gray-600">
@@ -1408,7 +1752,7 @@ export default function App() {
             </div>
 
             {/* Tabs */}
-            <div className="flex gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-fit">
+            <div className="flex flex-wrap gap-1 mb-4 bg-gray-100 p-1 rounded-lg w-full sm:w-fit">
               <button
                 onClick={() => setAdminTab('rooms')}
                 className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${adminTab === 'rooms' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
@@ -1430,9 +1774,9 @@ export default function App() {
             </div>
 
             {adminTab === 'rooms' && (
-            <div className="flex gap-6 flex-1 min-h-0">
+            <div className="flex flex-col xl:flex-row gap-6 flex-1 min-h-0">
               {/* Room List */}
-              <div className="w-1/2 border-r border-gray-200 pr-6 overflow-y-auto">
+              <div className="w-full xl:w-1/2 xl:border-r border-gray-200 xl:pr-6 overflow-y-auto">
                 <div className="flex justify-between items-center mb-4">
                   <h3 className="font-semibold text-gray-700">Danh sách phòng</h3>
                   <button 
@@ -1485,7 +1829,7 @@ export default function App() {
               </div>
 
               {/* Room Form */}
-              <div className="w-1/2 pl-2 overflow-y-auto">
+              <div className="w-full xl:w-1/2 xl:pl-2 overflow-y-auto">
                 <h3 className="font-semibold text-gray-700 mb-4">{editingRoom ? 'Sửa phòng họp' : 'Thêm phòng mới'}</h3>
                 <form onSubmit={handleSaveRoom} className="space-y-4">
                   <div>
@@ -1508,7 +1852,7 @@ export default function App() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Khu vực</label>
                       <select
@@ -1568,7 +1912,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  <div className="pt-4 flex justify-end gap-3">
+                  <div className="pt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                     {editingRoom && (
                       <button 
                         type="button"
@@ -1592,9 +1936,9 @@ export default function App() {
 
             {adminTab === 'needs' && (
             <div className="flex-1 overflow-y-auto">
-              <div className="flex gap-6">
+              <div className="flex flex-col xl:flex-row gap-6">
                 {/* Needs List */}
-                <div className="w-1/2 border-r border-gray-200 pr-6">
+                <div className="w-full xl:w-1/2 xl:border-r border-gray-200 xl:pr-6">
                   <h3 className="font-semibold text-gray-700 mb-4">Danh sách nhu cầu</h3>
                   <div className="space-y-2">
                     {needs.map(need => (
@@ -1638,7 +1982,7 @@ export default function App() {
                 </div>
 
                 {/* Need Form */}
-                <div className="w-1/2 pl-2">
+                <div className="w-full xl:w-1/2 xl:pl-2">
                   <h3 className="font-semibold text-gray-700 mb-4">{editingNeed ? 'Sửa nhu cầu' : 'Thêm nhu cầu mới'}</h3>
                   <form onSubmit={async (e) => {
                     e.preventDefault();
@@ -1682,7 +2026,7 @@ export default function App() {
                         <span className="text-sm text-gray-500">{nColor}</span>
                       </div>
                     </div>
-                    <div className="pt-4 flex justify-end gap-3">
+                    <div className="pt-4 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
                       {editingNeed && (
                         <button
                           type="button"
@@ -1708,7 +2052,7 @@ export default function App() {
             {adminTab === 'admins' && (
             <div className="flex-1 overflow-y-auto">
               <p className="text-sm text-gray-500 mb-4">Thêm số điện thoại để cấp quyền admin. Tài khoản gốc (admin-pos / 6530042026) luôn có quyền.</p>
-              <div className="flex gap-2 mb-4">
+              <div className="flex flex-col sm:flex-row gap-2 mb-4">
                 <input
                   type="tel"
                   value={newAdminPhone}
@@ -1759,7 +2103,7 @@ export default function App() {
       {/* Activity Log Modal */}
       {isLogModalOpen && isAdmin && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-6 my-8 flex flex-col max-h-[90vh]">
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full p-4 sm:p-6 my-4 sm:my-8 flex flex-col max-h-[90vh]">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-xl font-bold text-gray-900 flex items-center gap-2">
                 <ClipboardList size={20} /> Nhật ký hoạt động
@@ -1774,8 +2118,29 @@ export default function App() {
             ) : activityLogs.length === 0 ? (
               <div className="text-center py-8 text-gray-500">Chưa có hoạt động nào.</div>
             ) : (
-              <div className="overflow-y-auto flex-1">
-                <table className="w-full text-sm">
+              <div className="overflow-auto flex-1 mobile-scroll">
+                <div className="space-y-3 sm:hidden">
+                  {activityLogs.map(log => (
+                    <article key={log.id} className="rounded-xl border border-gray-200 p-3">
+                      <div className="text-xs text-gray-500">{new Date(log.createdAt + 'Z').toLocaleString('vi-VN')}</div>
+                      <div className="mt-2 font-medium text-gray-900">{log.userName}</div>
+                      <div className="text-xs text-gray-500">{log.userPhone}</div>
+                      <div className="mt-2">
+                        <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${
+                          log.action.includes('Xóa') ? 'bg-red-100 text-red-700' :
+                          log.action.includes('Đăng nhập') ? 'bg-blue-100 text-blue-700' :
+                          log.action.includes('Chỉnh sửa') ? 'bg-yellow-100 text-yellow-700' :
+                          'bg-green-100 text-green-700'
+                        }`}>
+                          {log.action}
+                        </span>
+                      </div>
+                      {log.detail && <div className="mt-2 text-sm text-gray-600 break-words whitespace-normal">{log.detail}</div>}
+                    </article>
+                  ))}
+                </div>
+
+                <table className="hidden sm:table w-full text-sm min-w-[720px]">
                   <thead className="bg-gray-50 sticky top-0">
                     <tr>
                       <th className="text-left p-2 font-semibold text-gray-700">Thời gian</th>

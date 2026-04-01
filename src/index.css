@@ -1,5 +1,15 @@
 @import "tailwindcss";
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  -webkit-tap-highlight-color: transparent;
+}
+
 .date-picker-overlay {
   opacity: 0;
   position: absolute;
@@ -21,4 +31,22 @@
   cursor: pointer;
   color: transparent;
   background: transparent;
+}
+
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+}
+
+.safe-fab-offset {
+  bottom: max(1rem, calc(env(safe-area-inset-bottom) + 1rem));
+}
+
+.safe-bottom-padding {
+  padding-bottom: 1rem;
+}
+
+@media (max-width: 767px) {
+  .safe-bottom-padding {
+    padding-bottom: max(6rem, calc(env(safe-area-inset-bottom) + 5rem));
+  }
 }
