@@ -1084,8 +1084,8 @@ export default function App() {
 
       {/* Booking Modal */}
       {isBookingModalOpen && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 my-8">
+        <div className="fixed inset-0 bg-black/50 flex justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-6 my-8 h-fit">
             <div className="flex justify-between items-center mb-6">
               <h2 className="text-xl font-bold text-gray-900">{editingBooking ? 'Chỉnh Sửa Lịch Đặt' : 'Đặt Phòng Họp'}</h2>
               <button onClick={() => setIsBookingModalOpen(false)} className="text-gray-400 hover:text-gray-600">
