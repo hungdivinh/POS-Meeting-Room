@@ -135,11 +135,12 @@ export default {
         for (const item of items) {
           const id = crypto.randomUUID().replace(/-/g, '');
           await env.DB.prepare(
-            'INSERT INTO bookings (id, room_id, user_name, user_phone, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+            'INSERT INTO bookings (id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
           ).bind(
             id,
             item.roomId,
             item.userName,
+            item.userPhone,
             item.userPhone,
             item.project ?? '',
             item.purpose ?? '',
@@ -220,8 +221,8 @@ export default {
         const body = await request.json<any>();
         const id = crypto.randomUUID().replace(/-/g, '');
         await env.DB.prepare(
-          'INSERT INTO activity_logs (id, user_name, user_phone, action, detail) VALUES (?, ?, ?, ?, ?)'
-        ).bind(id, body.userName, body.userPhone, body.action, body.detail ?? '').run();
+          'INSERT INTO activity_logs (id, user_name, user_phone, user_email, action, detail) VALUES (?, ?, ?, ?, ?, ?)'
+        ).bind(id, body.userName, body.userPhone, body.userPhone, body.action, body.detail ?? '').run();
         return json({ id }, 201);
       }
 
