@@ -21,6 +21,8 @@ export interface Room {
   color: string;
   location?: string;
   status?: string;
+  building?: string;
+  floor?: string;
 }
 
 export interface Booking {
@@ -87,4 +89,11 @@ export const logsApi = {
   list: (limit = 200) => request<ActivityLog[]>(`/api/logs?limit=${limit}`),
   create: (data: { userName: string; userPhone: string; action: string; detail?: string }) =>
     request<{ id: string }>('/api/logs', { method: 'POST', body: JSON.stringify(data) }),
+};
+
+// Admin Phones API
+export const adminPhonesApi = {
+  list: () => request<string[]>('/api/admin-phones'),
+  add: (phone: string) => request<{ success: boolean }>('/api/admin-phones', { method: 'POST', body: JSON.stringify({ phone }) }),
+  remove: (phone: string) => request<{ success: boolean }>(`/api/admin-phones/${encodeURIComponent(phone)}`, { method: 'DELETE' }),
 };

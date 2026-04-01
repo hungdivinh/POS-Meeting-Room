@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { roomsApi, bookingsApi, logsApi, needsApi, type Room, type Booking, type ActivityLog, type Need } from './api';
+import { roomsApi, bookingsApi, logsApi, needsApi, adminPhonesApi, type Room, type Booking, type ActivityLog, type Need } from './api';
 import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2, ClipboardList } from 'lucide-react';
 
@@ -19,7 +19,7 @@ export default function App() {
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
 
-  const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '6530042026') || false;
+  const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '6530042026') || adminPhones.includes(userProfile?.phone || '') || false;
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -32,9 +32,12 @@ export default function App() {
 
   // Booking Form
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [bBookerName, setBBookerName] = useState('');
+  const [bBookerPhone, setBBookerPhone] = useState('');
   const [bProject, setBProject] = useState('');
   const [bPurpose, setBPurpose] = useState('');
   const [bRoomId, setBRoomId] = useState('');
+  const [bLocationFilter, setBLocationFilter] = useState<string[]>([]);
   const [bDate, setBDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [bStartTime, setBStartTime] = useState('08:00');
   const [bEndTime, setBEndTime] = useState('09:00');
@@ -47,7 +50,9 @@ export default function App() {
   const [editingNeed, setEditingNeed] = useState<Need | null>(null);
   const [nName, setNName] = useState('');
   const [nColor, setNColor] = useState('#fbbf24');
-  const [adminTab, setAdminTab] = useState<'rooms' | 'needs'>('rooms');
+  const [adminTab, setAdminTab] = useState<'rooms' | 'needs' | 'admins'>('rooms');
+  const [adminPhones, setAdminPhones] = useState<string[]>(['6530042026']);
+  const [newAdminPhone, setNewAdminPhone] = useState('');
 
   // Repeat Form
   const [isRepeat, setIsRepeat] = useState(false);
@@ -63,6 +68,8 @@ export default function App() {
   const [rLocation, setRLocation] = useState('');
   const [rStatus, setRStatus] = useState('Đang hoạt động');
   const [rColor, setRColor] = useState('#3b82f6');
+  const [rBuilding, setRBuilding] = useState('');
+  const [rFloor, setRFloor] = useState('');
 
   // Custom Confirm Dialog State
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -135,6 +142,7 @@ export default function App() {
     }
     fetchRooms();
     fetchNeeds();
+    adminPhonesApi.list().then(setAdminPhones).catch(() => {});
   }, [fetchRooms, fetchNeeds]);
 
   useEffect(() => {
@@ -238,7 +246,9 @@ export default function App() {
           endTime: endIso,
           date: bDate,
           needIds: selectedNeeds,
-          color: isAdmin && bColor ? bColor : ''
+          color: isAdmin && bColor ? bColor : '',
+          userName: bBookerName,
+          userPhone: bBookerPhone
         };
 
         await bookingsApi.update(editingBooking.id, updatedBooking);
@@ -252,8 +262,8 @@ export default function App() {
 
           const newBooking: any = {
             roomId: bRoomId,
-            userName: userProfile.name,
-            userPhone: userProfile.phone,
+            userName: bBookerName || userProfile.name,
+            userPhone: bBookerPhone || userProfile.phone,
             project: bProject,
             purpose: bPurpose,
             startTime: startIso,
@@ -424,6 +434,8 @@ export default function App() {
 
   const openBookingModalWithDefaults = (roomId?: string, date?: string, startHour?: number) => {
     setEditingBooking(null);
+    setBBookerName(userProfile?.name || '');
+    setBBookerPhone(userProfile?.phone || '');
     if (roomId) setBRoomId(roomId);
     if (date) setBDate(date);
     if (startHour !== undefined) {
@@ -432,12 +444,18 @@ export default function App() {
     }
     setBProject('');
     setBPurpose('');
+    setBLocationFilter([]);
     setIsRepeat(false);
+    setSelectedNeeds([]);
+    setShowNeeds(false);
+    setBColor('');
     setIsBookingModalOpen(true);
   };
 
   const openEditBookingModal = (booking: Booking) => {
     setEditingBooking(booking);
+    setBBookerName(booking.userName);
+    setBBookerPhone(booking.userPhone);
     setBRoomId(booking.roomId);
     setBDate(booking.date);
     setBStartTime(format(parseISO(booking.startTime), 'HH:mm'));
@@ -447,6 +465,7 @@ export default function App() {
     setBColor(booking.color || '');
     setSelectedNeeds(booking.needIds || []);
     setShowNeeds((booking.needIds || []).length > 0);
+    setBLocationFilter([]);
     setIsRepeat(false);
     setIsBookingModalOpen(true);
   };
@@ -461,7 +480,9 @@ export default function App() {
         capacity: rCapacity,
         location: rLocation,
         status: rStatus,
-        color: rColor
+        color: rColor,
+        building: rBuilding,
+        floor: rFloor
       };
 
       if (editingRoom) {
@@ -478,6 +499,8 @@ export default function App() {
       setRLocation('');
       setRStatus('Đang hoạt động');
       setRColor('#3b82f6');
+      setRBuilding('');
+      setRFloor('');
       fetchRooms();
     } catch (error) {
       console.error('Room save error:', error);
@@ -512,6 +535,8 @@ export default function App() {
       setRLocation(room.location || '');
       setRStatus(room.status || 'Đang hoạt động');
       setRColor(room.color || '#3b82f6');
+      setRBuilding(room.building || '');
+      setRFloor(room.floor || '');
     } else {
       setEditingRoom(null);
       setRName('');
@@ -519,6 +544,8 @@ export default function App() {
       setRLocation('');
       setRStatus('Đang hoạt động');
       setRColor('#3b82f6');
+      setRBuilding('');
+      setRFloor('');
     }
   };
 
@@ -1068,15 +1095,15 @@ export default function App() {
             
             <form onSubmit={handleSaveBooking}>
               <div className="space-y-4">
-                {/* User Info (Readonly) */}
+                {/* User Info */}
                 <div className="grid grid-cols-2 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Người đặt</label>
-                    <input type="text" value={editingBooking ? editingBooking.userName : userProfile?.name || ''} disabled className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-gray-500" />
+                    <input type="text" value={bBookerName} onChange={(e) => setBBookerName(e.target.value)} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none' : 'border-gray-200 bg-gray-50 text-gray-500'}`} />
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
-                    <input type="text" value={editingBooking ? editingBooking.userPhone : userProfile?.phone || ''} disabled className="w-full border border-gray-200 bg-gray-50 rounded-lg px-3 py-2 text-gray-500" />
+                    <input type="tel" value={bBookerPhone} onChange={(e) => setBBookerPhone(e.target.value.replace(/\D/g, ''))} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none' : 'border-gray-200 bg-gray-50 text-gray-500'}`} />
                   </div>
                 </div>
 
@@ -1104,18 +1131,41 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* Room */}
+                {/* Room with Location Filter */}
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phòng họp <span className="text-red-500">*</span></label>
-                  <select 
+                  <div className="flex items-center gap-4 mb-1">
+                    <label className="block text-sm font-medium text-gray-700">Phòng họp <span className="text-red-500">*</span></label>
+                    <div className="flex gap-2">
+                      {['VP1', 'VP2', 'Xưởng'].map(loc => (
+                        <label key={loc} className="flex items-center gap-1 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={bLocationFilter.includes(loc)}
+                            onChange={(e) => {
+                              if (e.target.checked) setBLocationFilter([...bLocationFilter, loc]);
+                              else setBLocationFilter(bLocationFilter.filter(l => l !== loc));
+                            }}
+                            className="w-3.5 h-3.5 text-blue-600 rounded"
+                          />
+                          <span className="text-xs text-gray-600">{loc}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <select
                     required
                     value={bRoomId}
                     onChange={(e) => setBRoomId(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                   >
                     <option value="">-- Chọn phòng họp --</option>
-                    {rooms.filter(r => r.status?.includes('hoạt động') || r.id === bRoomId).map(r => (
-                      <option key={r.id} value={r.id}>{r.name}</option>
+                    {rooms.filter(r => {
+                      const isActive = r.status?.includes('hoạt động') || r.id === bRoomId;
+                      if (!isActive) return false;
+                      if (bLocationFilter.length === 0) return true;
+                      return bLocationFilter.some(loc => (r.building || '').includes(loc));
+                    }).map(r => (
+                      <option key={r.id} value={r.id}>{r.name}{r.floor ? ` - ${r.floor}` : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -1371,6 +1421,12 @@ export default function App() {
               >
                 Nhu cầu
               </button>
+              <button
+                onClick={() => setAdminTab('admins')}
+                className={`px-4 py-1.5 rounded-md text-sm font-medium transition-colors ${adminTab === 'admins' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-600 hover:text-gray-900'}`}
+              >
+                Cấp quyền
+              </button>
             </div>
 
             {adminTab === 'rooms' && (
@@ -1452,13 +1508,39 @@ export default function App() {
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Khu vực</label>
+                      <select
+                        value={rBuilding}
+                        onChange={(e) => setRBuilding(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      >
+                        <option value="">-- Chọn --</option>
+                        <option value="VP1">VP1</option>
+                        <option value="VP2">VP2</option>
+                        <option value="Xưởng">Xưởng</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Tầng</label>
+                      <input
+                        type="text"
+                        value={rFloor}
+                        onChange={(e) => setRFloor(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                        placeholder="VD: Tầng 2"
+                      />
+                    </div>
+                  </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Vị trí</label>
-                    <input 
-                      type="text" 
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Vị trí chi tiết</label>
+                    <input
+                      type="text"
                       value={rLocation}
                       onChange={(e) => setRLocation(e.target.value)}
                       className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      placeholder="Mô tả vị trí chi tiết"
                     />
                   </div>
                   <div>
@@ -1619,6 +1701,53 @@ export default function App() {
                     </div>
                   </form>
                 </div>
+              </div>
+            </div>
+            )}
+
+            {adminTab === 'admins' && (
+            <div className="flex-1 overflow-y-auto">
+              <p className="text-sm text-gray-500 mb-4">Thêm số điện thoại để cấp quyền admin. Tài khoản gốc (admin-pos / 6530042026) luôn có quyền.</p>
+              <div className="flex gap-2 mb-4">
+                <input
+                  type="tel"
+                  value={newAdminPhone}
+                  onChange={(e) => setNewAdminPhone(e.target.value.replace(/\D/g, ''))}
+                  placeholder="Nhập số điện thoại"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={async () => {
+                    if (!newAdminPhone) return;
+                    await adminPhonesApi.add(newAdminPhone);
+                    logActivity('Cấp quyền admin', `SĐT: ${newAdminPhone}`);
+                    setAdminPhones([...adminPhones, newAdminPhone]);
+                    setNewAdminPhone('');
+                  }}
+                  className="px-4 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition shadow-sm"
+                >
+                  Thêm
+                </button>
+              </div>
+              <div className="space-y-2">
+                {adminPhones.map(phone => (
+                  <div key={phone} className="flex items-center justify-between border border-gray-200 rounded-lg p-3">
+                    <span className="font-medium text-gray-900">{phone}</span>
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await adminPhonesApi.remove(phone);
+                        logActivity('Xóa quyền admin', `SĐT: ${phone}`);
+                        setAdminPhones(adminPhones.filter(p => p !== phone));
+                      }}
+                      className="p-1.5 text-red-600 hover:bg-red-50 rounded"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+                {adminPhones.length === 0 && <div className="text-gray-500 text-sm">Chưa có số điện thoại nào được cấp quyền.</div>}
               </div>
             </div>
             )}

@@ -44,8 +44,8 @@ export default {
         const body = await request.json<any>();
         const id = crypto.randomUUID().replace(/-/g, '');
         await env.DB.prepare(
-          'INSERT INTO rooms (id, name, capacity, color, location, status) VALUES (?, ?, ?, ?, ?, ?)'
-        ).bind(id, body.name, body.capacity ?? 0, body.color ?? '#3b82f6', body.location ?? '', body.status ?? 'Đang hoạt động').run();
+          'INSERT INTO rooms (id, name, capacity, color, location, status, building, floor) VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+        ).bind(id, body.name, body.capacity ?? 0, body.color ?? '#3b82f6', body.location ?? '', body.status ?? 'Đang hoạt động', body.building ?? '', body.floor ?? '').run();
         return json({ id, ...body }, 201);
       }
 
@@ -53,14 +53,32 @@ export default {
         const id = path.split('/').pop()!;
         const body = await request.json<any>();
         await env.DB.prepare(
-          'UPDATE rooms SET name = ?, capacity = ?, color = ?, location = ?, status = ? WHERE id = ?'
-        ).bind(body.name, body.capacity ?? 0, body.color ?? '#3b82f6', body.location ?? '', body.status ?? 'Đang hoạt động', id).run();
+          'UPDATE rooms SET name = ?, capacity = ?, color = ?, location = ?, status = ?, building = ?, floor = ? WHERE id = ?'
+        ).bind(body.name, body.capacity ?? 0, body.color ?? '#3b82f6', body.location ?? '', body.status ?? 'Đang hoạt động', body.building ?? '', body.floor ?? '', id).run();
         return json({ id, ...body });
       }
 
       if (path.match(/^\/api\/rooms\/[\w-]+$/) && method === 'DELETE') {
         const id = path.split('/').pop()!;
         await env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // === ADMIN PHONES ===
+      if (path === '/api/admin-phones' && method === 'GET') {
+        const { results } = await env.DB.prepare('SELECT phone FROM admin_phones').all();
+        return json(results.map((r: any) => r.phone));
+      }
+
+      if (path === '/api/admin-phones' && method === 'POST') {
+        const body = await request.json<any>();
+        await env.DB.prepare('INSERT OR IGNORE INTO admin_phones (phone) VALUES (?)').bind(body.phone).run();
+        return json({ success: true }, 201);
+      }
+
+      if (path.match(/^\/api\/admin-phones\/[\w-]+$/) && method === 'DELETE') {
+        const phone = decodeURIComponent(path.split('/').pop()!);
+        await env.DB.prepare('DELETE FROM admin_phones WHERE phone = ?').bind(phone).run();
         return json({ success: true });
       }
 
@@ -161,7 +179,7 @@ export default {
         const id = path.split('/').pop()!;
         const body = await request.json<any>();
         await env.DB.prepare(
-          'UPDATE bookings SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ? WHERE id = ?'
+          'UPDATE bookings SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email) WHERE id = ?'
         ).bind(
           body.roomId,
           body.project ?? '',
@@ -171,6 +189,9 @@ export default {
           body.date,
           body.color ?? '',
           Array.isArray(body.needIds) ? body.needIds.join(',') : (body.needIds ?? ''),
+          body.userName ?? null,
+          body.userPhone ?? null,
+          body.userPhone ?? null,
           id
         ).run();
         return json({ id, ...body });
