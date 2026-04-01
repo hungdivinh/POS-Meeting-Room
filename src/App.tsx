@@ -18,6 +18,8 @@ export default function App() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
+  const [adminPhones, setAdminPhones] = useState<string[]>([]);
+  const [newAdminPhone, setNewAdminPhone] = useState('');
 
   const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '6530042026') || adminPhones.includes(userProfile?.phone || '') || false;
 
@@ -51,8 +53,6 @@ export default function App() {
   const [nName, setNName] = useState('');
   const [nColor, setNColor] = useState('#fbbf24');
   const [adminTab, setAdminTab] = useState<'rooms' | 'needs' | 'admins'>('rooms');
-  const [adminPhones, setAdminPhones] = useState<string[]>(['6530042026']);
-  const [newAdminPhone, setNewAdminPhone] = useState('');
 
   // Repeat Form
   const [isRepeat, setIsRepeat] = useState(false);
