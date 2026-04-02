@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   repeat_group_id TEXT,
   color TEXT DEFAULT '',
   need_ids TEXT DEFAULT '',
+  attendee_count INTEGER,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );

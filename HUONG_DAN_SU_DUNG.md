@@ -1,152 +1,233 @@
 # PTSC-POS Meeting Room App
-## Hệ thống Đặt phòng họp trực tuyến
+## Hướng dẫn sử dụng và thuyết minh sáng kiến cải tiến
 
 **Link truy cập:** [https://pos-team.io.vn](https://pos-team.io.vn)
 
----
+## Lời mở đầu theo tinh thần Kaizen
 
-## 1. Giới thiệu
+Trong vận hành nội bộ, một bất tiện nhỏ lặp đi lặp lại mỗi ngày sẽ dần trở thành một lãng phí lớn. Việc đặt phòng họp bằng gọi điện, nhắn tin hoặc hỏi trực tiếp tưởng như đơn giản, nhưng thực tế lại làm mất thời gian, dễ trùng lịch, khó theo dõi trách nhiệm và khó kiểm soát nhu cầu phục vụ đi kèm.
 
-PTSC-POS Meeting Room App là hệ thống đặt phòng họp trực tuyến, cho phép toàn bộ nhân viên xem lịch phòng họp, đặt phòng, và quản lý lịch họp một cách nhanh chóng, minh bạch — thay thế hoàn toàn việc đặt phòng qua gọi điện, nhắn tin hay liên hệ trực tiếp.
+PTSC-POS Meeting Room App được xây dựng như một sáng kiến cải tiến theo tinh thần **Kaizen**: không thay đổi quy trình bằng những điều quá phức tạp, mà cải tiến đúng điểm nghẽn để công việc hằng ngày diễn ra nhanh hơn, rõ hơn và ít sai sót hơn. Chỉ với một giao diện dùng trên trình duyệt, hệ thống giúp mọi người biết ngay phòng nào còn trống, ai đã đặt, khung giờ nào phù hợp và các yêu cầu hậu cần cần chuẩn bị là gì.
 
----
+Giá trị lớn nhất của sáng kiến này không nằm ở công nghệ, mà nằm ở hiệu quả vận hành:
 
-## 2. Chức năng chính
+- giảm thời gian trao đổi qua điện thoại và tin nhắn
+- tránh trùng lịch ngay từ lúc tạo booking
+- minh bạch người đặt, thời gian đặt và lịch sử thay đổi
+- hỗ trợ quản lý tập trung cho admin nhưng vẫn thuận tiện cho toàn bộ nhân viên
+- tạo thói quen làm việc chuẩn hóa, nhanh và có dữ liệu để theo dõi
 
-### 2.1. Đăng nhập nhanh
-- Chỉ cần nhập **Họ tên** và **Số điện thoại** (10-11 số).
-- Không cần tạo tài khoản, không cần mật khẩu.
-- Thông tin được lưu trên trình duyệt, lần sau vào không cần nhập lại.
+Nói ngắn gọn, đây là một cải tiến nhỏ ở thao tác, nhưng tạo ra thay đổi lớn ở tính chủ động, tính minh bạch và chất lượng phối hợp nội bộ.
 
-### 2.2. Xem lịch phòng họp
-- **Chế độ Ngày:** Hiển thị dạng timeline từ 8:00 - 18:00, mỗi phòng một hàng — nhìn nhanh phòng nào trống, phòng nào đã đặt.
-- **Chế độ Tuần:** Hiển thị tổng quan cả tuần, chia buổi Sáng/Chiều — tiện cho việc lên kế hoạch.
-- Chuyển ngày bằng nút mũi tên hoặc chọn ngày trực tiếp trên lịch.
-- Nút **"Hôm nay"** để quay về ngày hiện tại.
+## 1. Bài toán trước cải tiến
 
-### 2.3. Đặt phòng họp
-- Nhấn vào ô trống trên timeline hoặc nhấn nút **"+"** (góc phải dưới).
-- Chọn **Khu vực** (VP1 / VP2 / Xưởng) để lọc nhanh phòng phù hợp.
-- Điền thông tin: Phòng, Ngày, Giờ bắt đầu, Giờ kết thúc, Dự án, Mục đích.
-- Hệ thống **tự động kiểm tra trùng lịch** — nếu trùng sẽ thông báo kèm thông tin liên hệ người đã đặt.
+Trước khi có hệ thống, việc đặt phòng họp thường gặp các vấn đề:
 
-### 2.4. Nhu cầu (yêu cầu bổ sung)
-- Tick vào **"Nhu cầu"** khi đặt phòng để chọn các yêu cầu bổ sung, ví dụ:
-  - Giữ chỗ / Chưa confirm (vàng)
-  - Chưa có PYC (đỏ)
-  - Trái cây (xanh lá)
-  - Bánh kẹo (hồng)
-  - Nước suối (xanh dương)
-- Có thể chọn **nhiều nhu cầu** cùng lúc.
-- Khung giờ hiển thị sẽ có **màu theo nhu cầu** — dễ nhận biết bằng mắt.
+- phải gọi điện hoặc nhắn tin để hỏi phòng còn trống hay không
+- nhiều đầu mối cùng nhận yêu cầu nên khó kiểm soát
+- dễ phát sinh trùng lịch khi nhiều người cùng liên hệ
+- người sau khó biết ai đã đặt để trao đổi đổi giờ
+- các nhu cầu như trái cây, nước suối, bánh kẹo thường bị báo rời rạc
+- không có nhật ký thao tác rõ ràng để tra cứu khi cần
 
-### 2.5. Lặp lại lịch họp
-- Tick vào **"Lặp lại"** khi đặt phòng.
-- Chọn kiểu lặp:
-  - **Tuần:** Chọn các thứ cần lặp (VD: Thứ 2, Thứ 4, Thứ 6).
-  - **Tháng:** Chọn các ngày trong tháng cần lặp (VD: ngày 1, 15, 28).
-- Chọn **ngày kết thúc lặp** — hệ thống tự tạo tất cả các khung giờ đến ngày đó.
-- Khi xóa một khung giờ trong chuỗi lặp, hệ thống hỏi: **xóa riêng khung giờ này** hay **xóa toàn bộ chuỗi**.
+## 2. Mục tiêu cải tiến
 
-### 2.6. Chỉnh sửa và Xóa
-- Nhấn vào khung giờ đã đặt → nút **Sửa** (bút) và **Xóa** (thùng rác) xuất hiện.
-- Chỉ người đặt hoặc Admin mới có quyền sửa/xóa.
+Hệ thống được thiết kế để đạt 5 mục tiêu chính:
 
----
+1. Số hóa toàn bộ thao tác đặt phòng trên một nền tảng thống nhất.
+2. Giúp người dùng tự tra cứu và tự đặt mà không cần chờ trung gian.
+3. Chặn trùng lịch ngay trong quá trình tạo hoặc chỉnh sửa booking.
+4. Hỗ trợ quản lý hậu cần và nhu cầu đi kèm ngay tại thời điểm đặt phòng.
+5. Tạo dữ liệu lịch sử để phục vụ kiểm tra, đối soát và cải tiến tiếp theo.
 
-## 3. Chức năng dành cho Admin
+## 3. Hiệu quả mang lại
 
-Đăng nhập với tài khoản Admin để truy cập các chức năng quản lý.
+So với cách làm truyền thống, hệ thống mang lại các cải thiện rõ rệt:
 
-### 3.1. Quản lý Phòng họp (tab "Phòng họp")
-- Thêm / Sửa / Xóa phòng họp.
-- Thiết lập: Tên phòng, Khu vực (VP1/VP2/Xưởng), Tầng, Sức chứa, Vị trí chi tiết, Hiện trạng, Màu sắc.
-- Phòng **"Tạm ngưng"** hoặc **"Đang triển khai hoán cải"** sẽ bị gạch ngang và đẩy xuống cuối danh sách.
-
-### 3.2. Quản lý Nhu cầu (tab "Nhu cầu")
-- Thêm / Sửa / Xóa các loại nhu cầu.
-- Tùy chỉnh tên và màu sắc cho từng nhu cầu.
-
-### 3.3. Cấp quyền Admin (tab "Cấp quyền")
-- Thêm số điện thoại để cấp quyền Admin cho người khác.
-- Xóa số điện thoại để thu hồi quyền.
-
-### 3.4. Nhật ký hoạt động (nút "Log")
-- Xem toàn bộ lịch sử hoạt động: ai đăng nhập, ai đặt/sửa/xóa phòng, ai tạo/xóa nhu cầu...
-- Hiển thị thời gian, người dùng, hành động, chi tiết.
-
-### 3.5. Quyền đặc biệt của Admin
-- Chỉnh sửa **tên và số điện thoại người đặt** trong form đặt phòng (để đặt hộ).
-- Chọn **màu hiển thị riêng** cho khung giờ.
-- Sửa/xóa lịch đặt của **tất cả** mọi người.
-
----
-
-## 4. Hướng dẫn sử dụng
-
-### Bước 1: Truy cập
-Mở trình duyệt (Chrome, Safari, Edge...) và vào: **[https://pos-team.io.vn](https://pos-team.io.vn)**
-
-### Bước 2: Đăng nhập
-Nhập **Họ tên** và **Số điện thoại** (10-11 số) → nhấn **"Bắt đầu"**.
-
-### Bước 3: Xem lịch
-- Mặc định hiển thị lịch ngày hôm nay.
-- Dùng nút **◀ ▶** để chuyển ngày/tuần.
-- Chuyển giữa **Ngày** / **Tuần** bằng nút trên thanh công cụ.
-
-### Bước 4: Đặt phòng
-1. Nhấn vào **ô trống** trên timeline (hoặc nhấn nút **+** góc phải dưới).
-2. Chọn **Khu vực** để lọc phòng (không bắt buộc).
-3. Chọn **Phòng họp**, **Ngày**, **Giờ bắt đầu**, **Giờ kết thúc**.
-4. Nhập **Dự án** và **Mục đích** (không bắt buộc).
-5. Tick **"Nhu cầu"** nếu cần yêu cầu bổ sung.
-6. Tick **"Lặp lại"** nếu họp định kỳ.
-7. Nhấn **"Xác nhận đặt phòng"**.
-
-### Bước 5: Sửa / Xóa
-- Di chuột vào khung giờ đã đặt → nhấn 🖊️ để sửa, 🗑️ để xóa.
-
-### Bước 6: Đổi tài khoản
-- Nhấn **"Đổi tài khoản"** ở góc phải trên để đăng nhập bằng tài khoản khác.
-
----
-
-## 5. Ưu điểm so với đặt phòng truyền thống
-
-| | Cách cũ (Gọi điện / Nhắn tin) | PTSC-POS Meeting Room App |
+| Tiêu chí | Cách cũ | Sau cải tiến |
 |---|---|---|
-| **Tốc độ** | Phải gọi/nhắn, chờ phản hồi, có thể mất 5-30 phút | Đặt ngay trong 30 giây, bất kỳ lúc nào |
-| **Minh bạch** | Không biết phòng nào trống, phải hỏi từng người | Nhìn ngay toàn bộ lịch trống/bận trên timeline |
-| **Tránh trùng lịch** | Hay bị đặt trùng, phát hiện khi đến phòng | Hệ thống tự kiểm tra, không cho đặt trùng |
-| **Thông tin liên hệ** | Không biết ai đã đặt để liên hệ đổi lịch | Hiển thị tên + SĐT người đặt, liên hệ ngay |
-| **Lặp lại** | Phải đặt từng lần, dễ quên | Đặt 1 lần, tự tạo chuỗi lịch họp định kỳ |
-| **Nhu cầu bổ sung** | Phải nhắn riêng cho bộ phận hậu cần | Chọn nhu cầu (trái cây, nước, bánh kẹo...) ngay khi đặt |
-| **Lịch sử** | Không có bằng chứng, hay tranh cãi | Mọi thao tác được ghi log đầy đủ |
-| **Truy cập** | Chỉ liên hệ được trong giờ hành chính | Truy cập 24/7 trên mọi thiết bị có trình duyệt |
-| **Quản lý** | Khó theo dõi tần suất sử dụng phòng | Admin xem log, quản lý tập trung |
-| **Đặt hộ** | Phải nhờ người có quyền | Admin có thể đặt hộ cho bất kỳ ai |
+| Tốc độ đặt phòng | Phụ thuộc người nhận điện thoại/tin nhắn | Người dùng tự đặt trong vài thao tác |
+| Minh bạch lịch | Phải hỏi từng người | Xem trực tiếp trên lịch ngày hoặc tuần |
+| Tránh trùng lịch | Dễ trùng khi nhiều người cùng đặt | Hệ thống tự kiểm tra và chặn trùng |
+| Tra cứu người đặt | Khó tìm đầu mối liên hệ | Hiển thị ngay tên và số điện thoại |
+| Nhu cầu phục vụ | Báo riêng lẻ, dễ sót | Gắn trực tiếp trong booking |
+| Theo dõi lịch sử | Gần như không có | Có log thao tác cho admin |
+| Quản lý tập trung | Phân tán, khó kiểm soát | Admin quản lý trên một màn hình |
+
+## 4. Đối tượng sử dụng
+
+Hệ thống có 2 nhóm người dùng:
+
+- **Người dùng thông thường**: xem lịch, đặt phòng, sửa hoặc xóa booking của chính mình.
+- **Admin**: quản lý phòng họp, nhu cầu, cấp quyền admin, xem log và đặt hộ cho người khác.
+
+## 5. Hướng dẫn sử dụng nhanh
+
+### Bước 1. Truy cập hệ thống
+
+Mở trình duyệt Chrome, Edge, Safari hoặc trình duyệt bất kỳ và vào:
+
+**[https://pos-team.io.vn](https://pos-team.io.vn)**
+
+### Bước 2. Đăng nhập nhanh
+
+Người dùng chỉ cần nhập:
+
+- họ tên
+- số điện thoại từ 10 đến 11 số
+
+Sau đó nhấn **Bắt đầu** để vào hệ thống.
+
+Điểm thuận tiện:
+
+- không cần tạo tài khoản
+- không cần nhớ mật khẩu
+- thông tin được lưu trên trình duyệt để dùng lại cho lần sau
+
+### Bước 3. Xem lịch phòng họp
+
+Hệ thống có 2 chế độ xem:
+
+- **Ngày**: phù hợp khi cần xem chi tiết từng phòng theo khung giờ
+- **Tuần**: phù hợp khi cần nhìn tổng quan kế hoạch sử dụng phòng trong tuần
+
+Người dùng có thể:
+
+- chuyển ngày hoặc tuần bằng nút mũi tên
+- chọn ngày trực tiếp
+- nhấn **Hôm nay** để quay về ngày hiện tại
+
+### Bước 4. Đặt phòng họp
+
+Người dùng có thể tạo booking bằng cách:
+
+- nhấn vào ô trống trên lịch
+- hoặc nhấn nút **+** trên giao diện mobile
+
+Các thông tin cần nhập:
+
+- phòng họp
+- ngày họp
+- giờ bắt đầu
+- giờ kết thúc
+- dự án
+- mục đích hoặc ghi chú
+
+Ngay khi lưu, hệ thống sẽ tự kiểm tra trùng lịch. Nếu khung giờ đã có người đặt, hệ thống sẽ từ chối và thông báo để người dùng chọn thời gian khác.
+
+### Bước 5. Chọn nhu cầu đi kèm
+
+Nếu cuộc họp cần phục vụ hậu cần, người dùng có thể bật mục **Nhu cầu** và chọn một hoặc nhiều nhu cầu như:
+
+- trái cây
+- nước suối
+- bánh kẹo
+- hoặc các nhu cầu khác do admin cấu hình
+
+Điểm hay của cải tiến này là nhu cầu không còn bị thông báo rời rạc qua tin nhắn, mà được gắn trực tiếp với booking.
+
+### Bước 6. Tạo lịch lặp lại
+
+Với các cuộc họp định kỳ, người dùng có thể bật tùy chọn **Lặp lại** và chọn:
+
+- lặp theo tuần
+- hoặc lặp theo tháng
+
+Người dùng chỉ cần chọn ngày kết thúc, hệ thống sẽ tự tạo chuỗi lịch phù hợp. Khi xóa, hệ thống hỗ trợ chọn:
+
+- xóa riêng một lịch
+- hoặc xóa toàn bộ chuỗi
+
+### Bước 7. Sửa hoặc xóa booking
+
+Người đặt phòng có thể sửa hoặc xóa booking của mình. Admin có thể thao tác trên toàn bộ booking khi cần xử lý điều phối.
+
+Các thao tác này được kiểm soát để:
+
+- tránh sửa nhầm lịch của người khác
+- đảm bảo lịch sử thay đổi được ghi nhận
+
+### Bước 8. Đổi tài khoản
+
+Nếu cần dùng tài khoản khác trên cùng thiết bị, người dùng chỉ cần nhấn **Đổi tài khoản** ở góc phải màn hình.
+
+## 6. Chức năng dành cho admin
+
+Admin có thêm các nhóm chức năng sau:
+
+### 6.1. Quản lý phòng họp
+
+Admin có thể:
+
+- thêm phòng mới
+- cập nhật tên phòng, vị trí, tòa nhà, tầng, sức chứa
+- thay đổi trạng thái phòng
+- xóa phòng không còn sử dụng
+
+Việc chuẩn hóa danh mục phòng giúp toàn bộ người dùng nhìn cùng một dữ liệu, tránh hiểu sai tên hoặc vị trí phòng.
+
+### 6.2. Quản lý nhu cầu
+
+Admin có thể thêm, sửa, xóa các nhu cầu phục vụ đi kèm và gán màu hiển thị cho từng nhu cầu. Điều này giúp lịch họp không chỉ cho biết có cuộc họp, mà còn cho biết cuộc họp đó cần chuẩn bị gì.
+
+### 6.3. Cấp quyền admin
+
+Admin có thể thêm hoặc thu hồi quyền admin theo số điện thoại. Cách làm này giúp mở rộng phân quyền linh hoạt mà không cần tạo cơ chế tài khoản phức tạp.
+
+### 6.4. Xem nhật ký hoạt động
+
+Module log cho phép admin tra cứu:
+
+- ai đăng nhập
+- ai tạo, sửa, xóa booking
+- ai thay đổi phòng, nhu cầu hoặc quyền admin
+
+Đây là nền tảng quan trọng để kiểm tra, đối soát và tiếp tục cải tiến quy trình sau này.
+
+### 6.5. Đặt hộ cho người khác
+
+Trong các trường hợp cần điều phối tập trung, admin có thể thay đổi tên và số điện thoại người đặt ngay trong form booking để tạo lịch hộ cho nhân sự khác.
+
+## 7. Nguyên tắc sử dụng hiệu quả
+
+Để sáng kiến phát huy đúng giá trị, người dùng nên thống nhất một số nguyên tắc:
+
+- luôn đặt phòng trực tiếp trên hệ thống thay vì nhắn riêng
+- nhập đúng họ tên và số điện thoại để thuận tiện liên hệ
+- cập nhật hoặc xóa ngay khi kế hoạch thay đổi
+- gắn nhu cầu đi kèm ngay từ đầu để bộ phận liên quan chủ động chuẩn bị
+- ưu tiên kiểm tra lịch tuần khi lên kế hoạch họp định kỳ
+
+## 8. Câu hỏi thường gặp
+
+**1. Tôi bị báo trùng lịch thì phải làm gì?**  
+Hệ thống sẽ không cho lưu nếu khung giờ đã bị trùng. Người dùng cần chọn giờ khác hoặc liên hệ người đã đặt để thống nhất lại.
+
+**2. Tôi có cần tạo tài khoản không?**  
+Không. Hệ thống dùng họ tên và số điện thoại để đăng nhập nhanh.
+
+**3. Tôi có thể đặt phòng lặp hằng tuần không?**  
+Có. Chỉ cần bật mục **Lặp lại**, chọn kiểu lặp và ngày kết thúc.
+
+**4. Tôi có thể xem ai đã đặt phòng không?**  
+Có. Lịch hiển thị tên và số điện thoại để thuận tiện trao đổi.
+
+**5. Nếu thay đổi kế hoạch họp thì sao?**  
+Người đặt có thể sửa hoặc xóa booking của mình. Admin có thể hỗ trợ xử lý khi cần.
+
+## 9. Kết luận
+
+PTSC-POS Meeting Room App không chỉ là một công cụ đặt phòng, mà là một sáng kiến cải tiến quy trình làm việc nội bộ theo đúng tinh thần Kaizen:
+
+- cải tiến từ vấn đề nhỏ nhưng xảy ra mỗi ngày
+- chuẩn hóa thao tác để giảm lãng phí thời gian
+- tăng tính minh bạch và trách nhiệm
+- tạo nền tảng dữ liệu cho các cải tiến tiếp theo
+
+Nếu được sử dụng thống nhất, hệ thống sẽ giúp việc tổ chức họp trở nên nhanh hơn, rõ ràng hơn và chuyên nghiệp hơn cho toàn bộ đơn vị.
 
 ---
 
-## 6. Câu hỏi thường gặp
-
-**Q: Quên số điện thoại đã đăng nhập trước đó?**
-A: Nhấn "Đổi tài khoản" và đăng nhập lại bằng SĐT đúng.
-
-**Q: Đặt phòng mà bị báo "Khung giờ này đã có người đặt"?**
-A: Hệ thống hiển thị tên và SĐT người đã đặt — liên hệ trực tiếp để trao đổi.
-
-**Q: Muốn đặt phòng họp hàng tuần?**
-A: Khi đặt phòng, tick "Lặp lại" → chọn "Tuần" → tick các thứ cần họp → chọn ngày kết thúc → Xác nhận.
-
-**Q: Phòng họp không thấy trong danh sách?**
-A: Kiểm tra bộ lọc Khu vực (VP1/VP2/Xưởng). Nếu đã tick khu vực mà không thấy → phòng đang ở trạng thái "Tạm ngưng" hoặc "Đang hoán cải".
-
-**Q: Muốn xóa toàn bộ chuỗi lịch họp định kỳ?**
-A: Xóa bất kỳ khung giờ nào trong chuỗi → chọn "Xóa toàn bộ chuỗi".
-
----
-
-*Phiên bản: 1.0 | Cập nhật: 01/04/2026*
+*Phiên bản tài liệu: 2.0*  
+*Cập nhật: 02/04/2026*  
 *Phát triển bởi: PTSC-POS Team*

@@ -30,6 +30,7 @@ export interface Booking {
   roomId: string;
   userName: string;
   userPhone: string;
+  attendeeCount?: number | null;
   project: string;
   purpose: string;
   startTime: string;

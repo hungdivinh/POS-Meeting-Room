@@ -11,10 +11,51 @@ interface UserProfile {
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8 AM to 6 PM
 const DAYS_OF_WEEK = [1, 2, 3, 4, 5, 6, 0]; // Monday to Sunday (0 is Sunday in date-fns)
 const DAY_NAMES = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
+const ROOMS_CACHE_KEY = 'meetingRoomsCacheV1';
+const ROOMS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function readRoomsCache(): Room[] {
+  if (typeof window === 'undefined') return [];
+
+  try {
+    const raw = window.localStorage.getItem(ROOMS_CACHE_KEY);
+    if (!raw) return [];
+
+    const parsed = JSON.parse(raw) as { savedAt?: number; rooms?: Room[] };
+    if (!parsed || !Array.isArray(parsed.rooms) || typeof parsed.savedAt !== 'number') {
+      return [];
+    }
+
+    if (Date.now() - parsed.savedAt > ROOMS_CACHE_TTL_MS) {
+      return [];
+    }
+
+    return parsed.rooms;
+  } catch {
+    return [];
+  }
+}
+
+function writeRoomsCache(rooms: Room[]): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    window.localStorage.setItem(
+      ROOMS_CACHE_KEY,
+      JSON.stringify({
+        savedAt: Date.now(),
+        rooms,
+      }),
+    );
+  } catch {
+    // Ignore storage quota or private-mode cache errors.
+  }
+}
 
 export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
-  const [rooms, setRooms] = useState<Room[]>([]);
+  const [rooms, setRooms] = useState<Room[]>(() => readRoomsCache());
+  const [roomsLoading, setRoomsLoading] = useState<boolean>(() => readRoomsCache().length === 0);
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
@@ -27,6 +68,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
+  const [selectedBookingDetails, setSelectedBookingDetails] = useState<Booking | null>(null);
   
   // Profile Form
   const [profileName, setProfileName] = useState('');
@@ -43,6 +85,7 @@ export default function App() {
   const [bDate, setBDate] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [bStartTime, setBStartTime] = useState('08:00');
   const [bEndTime, setBEndTime] = useState('09:00');
+  const [bAttendeeCount, setBAttendeeCount] = useState('');
   const [bColor, setBColor] = useState('');
   const [selectedNeeds, setSelectedNeeds] = useState<string[]>([]);
   const [showNeeds, setShowNeeds] = useState(false);
@@ -84,12 +127,33 @@ export default function App() {
   const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [logsLoading, setLogsLoading] = useState(false);
 
-  const fetchRooms = useCallback(async () => {
+  const bookingDetailsRoom = selectedBookingDetails
+    ? rooms.find(r => r.id === selectedBookingDetails.roomId) ?? null
+    : null;
+  const bookingDetailsNeedNames = selectedBookingDetails
+    ? (selectedBookingDetails.needIds || [])
+        .map(nid => needs.find(n => n.id === nid)?.name)
+        .filter(Boolean) as string[]
+    : [];
+  const bookingDetailsStart = selectedBookingDetails ? parseISO(selectedBookingDetails.startTime) : null;
+  const bookingDetailsEnd = selectedBookingDetails ? parseISO(selectedBookingDetails.endTime) : null;
+  const canManageSelectedBooking = selectedBookingDetails
+    ? selectedBookingDetails.userPhone === userProfile?.phone || isAdmin
+    : false;
+
+  const fetchRooms = useCallback(async (showLoading = false) => {
+    if (showLoading) {
+      setRoomsLoading(true);
+    }
+
     try {
       const data = await roomsApi.list();
       setRooms(data);
+      writeRoomsCache(data);
     } catch (e) {
       console.error('Failed to fetch rooms:', e);
+    } finally {
+      setRoomsLoading(false);
     }
   }, []);
 
@@ -140,7 +204,7 @@ export default function App() {
     } else {
       setIsProfileModalOpen(true);
     }
-    fetchRooms();
+    fetchRooms(readRoomsCache().length === 0);
     fetchNeeds();
     adminPhonesApi.list().then(setAdminPhones).catch(() => {});
   }, [fetchRooms, fetchNeeds]);
@@ -230,6 +294,13 @@ export default function App() {
     try {
       const startIso = `${bDate}T${bStartTime}:00`;
       const endIso = `${bDate}T${bEndTime}:00`;
+      const trimmedAttendeeCount = bAttendeeCount.trim();
+      const attendeeCount = trimmedAttendeeCount === '' ? null : Number.parseInt(trimmedAttendeeCount, 10);
+
+      if (trimmedAttendeeCount !== '' && (!Number.isInteger(attendeeCount) || attendeeCount < 1)) {
+        alert('Số người phải là số nguyên lớn hơn 0.');
+        return;
+      }
 
       if (editingBooking) {
         const overlap = findOverlap(bRoomId, startIso, endIso, bDate, editingBooking.id);
@@ -245,6 +316,7 @@ export default function App() {
           startTime: startIso,
           endTime: endIso,
           date: bDate,
+          attendeeCount,
           needIds: selectedNeeds,
           color: isAdmin && bColor ? bColor : '',
           userName: bBookerName,
@@ -269,6 +341,7 @@ export default function App() {
             startTime: startIso,
             endTime: endIso,
             date: bDate,
+            attendeeCount,
             needIds: selectedNeeds,
             color: isAdmin && bColor ? bColor : ''
           };
@@ -326,6 +399,7 @@ export default function App() {
               endTime: endIso,
               date: dateStr,
               repeatGroupId: repeatGroupId,
+              attendeeCount,
               needIds: selectedNeeds,
               color: isAdmin && bColor ? bColor : ''
             };
@@ -360,6 +434,7 @@ export default function App() {
       setRepeatMonthDays([]);
       setSelectedNeeds([]);
       setShowNeeds(false);
+      setBAttendeeCount('');
       setBColor('');
       fetchBookings();
     } catch (error) {
@@ -451,8 +526,13 @@ export default function App() {
     setIsRepeat(false);
     setSelectedNeeds([]);
     setShowNeeds(false);
+    setBAttendeeCount('');
     setBColor('');
     setIsBookingModalOpen(true);
+  };
+
+  const openBookingDetailsModal = (booking: Booking) => {
+    setSelectedBookingDetails(booking);
   };
 
   const openEditBookingModal = (booking: Booking) => {
@@ -465,6 +545,7 @@ export default function App() {
     setBEndTime(format(parseISO(booking.endTime), 'HH:mm'));
     setBProject(booking.project);
     setBPurpose(booking.purpose);
+    setBAttendeeCount(typeof booking.attendeeCount === 'number' ? String(booking.attendeeCount) : '');
     setBColor(booking.color || '');
     setSelectedNeeds(booking.needIds || []);
     setShowNeeds((booking.needIds || []).length > 0);
@@ -577,7 +658,11 @@ export default function App() {
 
     return (
       <div className="space-y-3 md:hidden">
-        {sortedRooms.length === 0 ? (
+        {roomsLoading && sortedRooms.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-blue-200 bg-blue-50 p-6 text-center text-sm text-blue-700">
+            Đang tải danh sách phòng họp...
+          </div>
+        ) : sortedRooms.length === 0 ? (
           <div className="rounded-xl border border-dashed border-gray-300 bg-white p-6 text-center text-sm text-gray-500">
             Chưa có phòng họp nào.
           </div>
@@ -642,7 +727,12 @@ export default function App() {
                         const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
 
                         return (
-                          <article key={booking.id} className="rounded-xl border border-gray-200 p-3 shadow-sm" style={bgStyle}>
+                          <article
+                            key={booking.id}
+                            onClick={() => openBookingDetailsModal(booking)}
+                            className="rounded-xl border border-gray-200 p-3 shadow-sm cursor-pointer hover:shadow-md"
+                            style={bgStyle}
+                          >
                             <div className="flex items-start justify-between gap-3">
                               <div className="min-w-0">
                                 <div className="text-sm font-semibold text-gray-900">
@@ -743,7 +833,12 @@ export default function App() {
                     const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
 
                     return (
-                      <article key={booking.id} className="rounded-xl border border-gray-200 p-3 shadow-sm" style={bgStyle}>
+                      <article
+                        key={booking.id}
+                        onClick={() => openBookingDetailsModal(booking)}
+                        className="rounded-xl border border-gray-200 p-3 shadow-sm cursor-pointer hover:shadow-md"
+                        style={bgStyle}
+                      >
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0">
                             <div className="text-sm font-semibold text-gray-900">
@@ -814,7 +909,9 @@ export default function App() {
 
           {/* Rooms and Timeline */}
           <div className="divide-y divide-gray-200">
-            {sortedRooms.length === 0 ? (
+            {roomsLoading && sortedRooms.length === 0 ? (
+              <div className="p-8 text-center text-blue-700">Đang tải danh sách phòng họp...</div>
+            ) : sortedRooms.length === 0 ? (
               <div className="p-8 text-center text-gray-500">Chưa có phòng họp nào.</div>
             ) : (
               sortedRooms.map(room => {
@@ -888,8 +985,8 @@ export default function App() {
                       return (
                         <div
                           key={booking.id}
-                          onClick={() => room.status?.includes('hoạt động') && openBookingModalWithDefaults(room.id, format(selectedDate, 'yyyy-MM-dd'), Math.floor(startHour))}
-                          className={`absolute top-1 bottom-1 rounded-md shadow-sm border border-gray-200 p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden ${room.status?.includes('hoạt động') ? 'cursor-pointer hover:shadow-md' : ''}`}
+                          onClick={() => openBookingDetailsModal(booking)}
+                          className="absolute top-1 bottom-1 rounded-md shadow-sm border border-gray-200 p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden cursor-pointer hover:shadow-md"
                           style={{
                             left: `${leftPercent}%`,
                             width: `calc(${widthPercent}% - 4px)`,
@@ -967,7 +1064,9 @@ export default function App() {
 
           {/* Body */}
           <div className="divide-y divide-gray-300">
-            {sortedRooms.length === 0 ? (
+            {roomsLoading && sortedRooms.length === 0 ? (
+              <div className="p-8 text-center text-blue-700">Đang tải danh sách phòng họp...</div>
+            ) : sortedRooms.length === 0 ? (
               <div className="p-8 text-center text-gray-500">Chưa có phòng họp nào.</div>
             ) : (
               sortedRooms.map(room => {
@@ -1025,7 +1124,8 @@ export default function App() {
                                 return (
                                   <div
                                     key={booking.id}
-                                    className={`mb-1 p-1.5 border border-gray-200 rounded text-xs relative group/booking ${canEdit ? 'hover:shadow-md' : ''}`}
+                                    onClick={() => openBookingDetailsModal(booking)}
+                                    className="mb-1 p-1.5 border border-gray-200 rounded text-xs relative group/booking cursor-pointer hover:shadow-md"
                                     style={wBgStyle}
                                   >
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
@@ -1096,7 +1196,8 @@ export default function App() {
                                 return (
                                   <div 
                                     key={booking.id} 
-                                    className={`mb-1 p-1.5 border rounded text-xs relative group/booking ${!booking.color ? 'bg-yellow-100 border-yellow-300' : ''} ${canEdit ? 'hover:shadow-md hover:border-yellow-400' : ''}`}
+                                    onClick={() => openBookingDetailsModal(booking)}
+                                    className={`mb-1 p-1.5 border rounded text-xs relative group/booking cursor-pointer hover:shadow-md ${!booking.color ? 'bg-yellow-100 border-yellow-300 hover:border-yellow-400' : ''}`}
                                     style={booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {}}
                                   >
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
@@ -1571,7 +1672,7 @@ export default function App() {
                 )}
 
                 {/* Needs + Repeat checkboxes */}
-                <div className="border-t border-gray-200 pt-4 mt-2 flex flex-col sm:flex-row gap-3 sm:gap-6">
+                <div className="border-t border-gray-200 pt-4 mt-2 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                   <label className="flex items-center gap-2 cursor-pointer">
                     <input
                       type="checkbox"
@@ -1592,6 +1693,19 @@ export default function App() {
                       <span className="text-sm font-medium text-gray-700">Lặp lại</span>
                     </label>
                   )}
+                  <div className="w-full sm:w-auto lg:min-w-[180px]">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Số người</label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      value={bAttendeeCount}
+                      onChange={(e) => setBAttendeeCount(e.target.value.replace(/[^\d]/g, ''))}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                      placeholder="VD: 12"
+                    />
+                  </div>
                 </div>
 
                 {/* Needs Selection */}
@@ -1736,6 +1850,131 @@ export default function App() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {selectedBookingDetails && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[55] p-4 overflow-y-auto">
+          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full p-4 sm:p-6 my-4 sm:my-8">
+            <div className="flex justify-between items-center mb-5">
+              <h2 className="text-xl font-bold text-gray-900">Thông tin lịch đặt</h2>
+              <button
+                onClick={() => setSelectedBookingDetails(null)}
+                className="text-gray-400 hover:text-gray-600 text-2xl"
+              >
+                &times;
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Phòng họp</div>
+                  <div className="mt-1 text-sm font-semibold text-gray-900">{bookingDetailsRoom?.name || 'Phòng chưa xác định'}</div>
+                  {bookingDetailsRoom?.location && <div className="mt-1 text-sm text-gray-600">{bookingDetailsRoom.location}</div>}
+                </div>
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Thời gian</div>
+                  <div className="mt-1 text-sm font-semibold text-gray-900">
+                    {bookingDetailsStart && bookingDetailsEnd
+                      ? `${format(bookingDetailsStart, 'HH:mm')} - ${format(bookingDetailsEnd, 'HH:mm')}`
+                      : ''}
+                  </div>
+                  <div className="mt-1 text-sm text-gray-600">{selectedBookingDetails.date}</div>
+                </div>
+              </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
+                <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Người đặt</div>
+                <div className="mt-1 text-sm font-semibold text-gray-900">{selectedBookingDetails.userName}</div>
+                <div className="mt-1 text-sm text-gray-600">{selectedBookingDetails.userPhone}</div>
+              </div>
+
+              {(selectedBookingDetails.project || selectedBookingDetails.purpose || bookingDetailsNeedNames.length > 0 || selectedBookingDetails.repeatGroupId || typeof selectedBookingDetails.attendeeCount === 'number') && (
+                <div className="space-y-3">
+                  {typeof selectedBookingDetails.attendeeCount === 'number' && (
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Số người tham dự</div>
+                      <div className="mt-1 text-sm text-gray-800">{selectedBookingDetails.attendeeCount} người</div>
+                    </div>
+                  )}
+
+                  {selectedBookingDetails.project && (
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Dự án</div>
+                      <div className="mt-1 text-sm text-gray-800 break-words whitespace-normal">{selectedBookingDetails.project}</div>
+                    </div>
+                  )}
+
+                  {selectedBookingDetails.purpose && (
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Mục đích / ghi chú</div>
+                      <div className="mt-1 text-sm text-gray-800 break-words whitespace-normal">{selectedBookingDetails.purpose}</div>
+                    </div>
+                  )}
+
+                  {bookingDetailsNeedNames.length > 0 && (
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Nhu cầu</div>
+                      <div className="mt-1 flex flex-wrap gap-2">
+                        {bookingDetailsNeedNames.map(name => (
+                          <span key={name} className="rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700">
+                            {name}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {selectedBookingDetails.repeatGroupId && (
+                    <div>
+                      <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Chuỗi lặp lại</div>
+                      <div className="mt-1 text-sm text-gray-800">Booking này thuộc một chuỗi lịch lặp lại.</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-col-reverse sm:flex-row sm:justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setSelectedBookingDetails(null)}
+                className="px-4 py-2 text-gray-700 font-medium hover:bg-gray-100 rounded-lg transition"
+              >
+                Đóng
+              </button>
+
+              {canManageSelectedBooking && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const booking = selectedBookingDetails;
+                      if (!booking) return;
+                      setSelectedBookingDetails(null);
+                      openEditBookingModal(booking);
+                    }}
+                    className="px-4 py-2 bg-blue-600 text-white font-medium hover:bg-blue-700 rounded-lg transition shadow-sm"
+                  >
+                    Sửa lịch
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const booking = selectedBookingDetails;
+                      if (!booking) return;
+                      setSelectedBookingDetails(null);
+                      handleDeleteBooking(booking.id);
+                    }}
+                    className="px-4 py-2 bg-red-600 text-white font-medium hover:bg-red-700 rounded-lg transition shadow-sm"
+                  >
+                    Xóa lịch
+                  </button>
+                </>
+              )}
+            </div>
           </div>
         </div>
       )}

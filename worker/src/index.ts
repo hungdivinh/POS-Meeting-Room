@@ -30,11 +30,29 @@ interface BookingWriteInput {
   endTime?: unknown;
   userName?: unknown;
   userPhone?: unknown;
+  attendeeCount?: unknown;
   project?: unknown;
   purpose?: unknown;
   repeatGroupId?: unknown;
   color?: unknown;
   needIds?: unknown;
+}
+
+function parseAttendeeCount(input: unknown): { value: number | null; valid: boolean } {
+  if (input === null || input === undefined) {
+    return { value: null, valid: true };
+  }
+
+  if (typeof input === 'string' && !input.trim()) {
+    return { value: null, valid: true };
+  }
+
+  const parsed = typeof input === 'number' ? input : Number(input);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return { value: null, valid: false };
+  }
+
+  return { value: parsed, valid: true };
 }
 
 function getBookingValidationError(input: BookingWriteInput, requireContact = false): string | null {
@@ -68,6 +86,11 @@ function getBookingValidationError(input: BookingWriteInput, requireContact = fa
     }
   }
 
+  const attendeeCount = parseAttendeeCount(input.attendeeCount);
+  if (!attendeeCount.valid) {
+    return 'Số người phải là số nguyên lớn hơn 0.';
+  }
+
   return null;
 }
 
@@ -83,6 +106,17 @@ function serializeNeedIds(needIds: unknown): string {
 
 function getResultChanges(result: D1Result<unknown>): number {
   return result.meta.changes ?? 0;
+}
+
+async function ensureBookingAttendeeCountColumn(db: D1Database): Promise<void> {
+  try {
+    await db.prepare('ALTER TABLE bookings ADD COLUMN attendee_count INTEGER').run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+    if (!message.includes('duplicate column name') && !message.includes('already exists')) {
+      throw err;
+    }
+  }
 }
 
 export default {
@@ -178,6 +212,7 @@ export default {
 
       // === BOOKINGS ===
       if (path === '/api/bookings' && method === 'GET') {
+        await ensureBookingAttendeeCountColumn(env.DB);
         const startDate = url.searchParams.get('startDate');
         const endDate = url.searchParams.get('endDate');
 
@@ -195,6 +230,7 @@ export default {
           roomId: r.room_id,
           userName: r.user_name,
           userPhone: r.user_phone,
+          attendeeCount: typeof r.attendee_count === 'number' ? r.attendee_count : null,
           project: r.project,
           purpose: r.purpose,
           startTime: r.start_time,
@@ -208,6 +244,7 @@ export default {
       }
 
       if (path === '/api/bookings' && method === 'POST') {
+        await ensureBookingAttendeeCountColumn(env.DB);
         const body = await request.json<any>();
 
         // Support batch creation (array of bookings)
@@ -223,10 +260,11 @@ export default {
         }
 
         for (const item of items) {
+          const attendeeCount = parseAttendeeCount(item.attendeeCount).value;
           const id = crypto.randomUUID().replace(/-/g, '');
           const result = await session.prepare(
-            `INSERT INTO bookings (id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids)
-             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            `INSERT INTO bookings (id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids, attendee_count)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
              WHERE NOT EXISTS (
                SELECT 1
                FROM bookings
@@ -249,6 +287,7 @@ export default {
             item.repeatGroupId ?? null,
             item.color ?? '',
             serializeNeedIds(item.needIds),
+            attendeeCount,
             item.roomId,
             item.date,
             item.endTime,
@@ -274,6 +313,7 @@ export default {
       }
 
       if (path.match(/^\/api\/bookings\/[\w-]+$/) && method === 'PUT') {
+        await ensureBookingAttendeeCountColumn(env.DB);
         const id = path.split('/').pop()!;
         const body = await request.json<any>();
         const validationError = getBookingValidationError(body);
@@ -281,10 +321,11 @@ export default {
           return error(validationError);
         }
 
+        const attendeeCount = parseAttendeeCount(body.attendeeCount).value;
         const session = env.DB.withSession('first-primary');
         const result = await session.prepare(
           `UPDATE bookings
-           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
+           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, attendee_count = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
            WHERE id = ?
              AND NOT EXISTS (
                SELECT 1
@@ -304,6 +345,7 @@ export default {
           body.date,
           body.color ?? '',
           serializeNeedIds(body.needIds),
+          attendeeCount,
           body.userName ?? null,
           body.userPhone ?? null,
           body.userPhone ?? null,
