@@ -68,7 +68,7 @@ interface PushNotificationPayload {
   body: string;
   url: string;
   tag: string;
-  kind: 'admin-pending' | 'user-rejected';
+  kind: 'admin-pending' | 'user-rejected' | 'user-confirmed';
   bookingId: string;
 }
 
@@ -584,9 +584,9 @@ async function notifyAdminPendingNeeds(env: Env, request: Request, booking: Retu
   );
 }
 
-async function notifyUserRejectedNeeds(env: Env, request: Request, booking: ReturnType<typeof mapBookingRow>): Promise<void> {
+async function notifyUserNeedsStatusChange(env: Env, request: Request, booking: ReturnType<typeof mapBookingRow>): Promise<void> {
   const pushConfig = getPushConfig(env);
-  if (!pushConfig.enabled || booking.needsStatus !== 'rejected') {
+  if (!pushConfig.enabled || !['rejected', 'confirmed'].includes(booking.needsStatus)) {
     return;
   }
 
@@ -597,12 +597,15 @@ async function notifyUserRejectedNeeds(env: Env, request: Request, booking: Retu
 
   const roomName = await resolveRoomName(env.DB, booking.roomId);
   const appBaseUrl = getAppBaseUrl(request, env);
+  const isRejected = booking.needsStatus === 'rejected';
   const payload: PushNotificationPayload = {
-    title: 'Nhu cầu hậu cần đã bị từ chối',
-    body: `Phòng ${roomName}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)}. Vui lòng mở ứng dụng để xem chi tiết.`,
+    title: isRejected ? 'Nhu cầu hậu cần đã bị từ chối' : 'Nhu cầu hậu cần đã được xác nhận',
+    body: isRejected
+      ? `Phòng ${roomName}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)}. Vui lòng mở ứng dụng để xem chi tiết.`
+      : `Phòng ${roomName}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)} đã được admin xác nhận nhu cầu.`,
     url: appBaseUrl,
-    tag: `user-rejected-${booking.id}`,
-    kind: 'user-rejected',
+    tag: `${isRejected ? 'user-rejected' : 'user-confirmed'}-${booking.id}`,
+    kind: isRejected ? 'user-rejected' : 'user-confirmed',
     bookingId: booking.id,
   };
 
@@ -611,7 +614,7 @@ async function notifyUserRejectedNeeds(env: Env, request: Request, booking: Retu
       try {
         await sendPushNotification(env, subscription, payload);
       } catch (error) {
-        console.error('Failed to send user rejected push notification:', error);
+        console.error('Failed to send user needs-status push notification:', error);
       }
     }),
   );
@@ -1109,8 +1112,8 @@ export default {
         }
 
         const mappedUpdated = mapBookingRow(updated);
-        if (mappedUpdated.needsStatus === 'rejected') {
-          await notifyUserRejectedNeeds(env, request, mappedUpdated);
+        if (mappedUpdated.needsStatus === 'rejected' || mappedUpdated.needsStatus === 'confirmed') {
+          await notifyUserNeedsStatusChange(env, request, mappedUpdated);
         }
 
         return json(mappedUpdated);
@@ -1142,7 +1145,10 @@ export default {
           return error('Booking not found', 404);
         }
 
-        return json(mapBookingRow(updated));
+        const mappedUpdated = mapBookingRow(updated);
+        await notifyUserNeedsStatusChange(env, request, mappedUpdated);
+
+        return json(mappedUpdated);
       }
 
       if (path.match(/^\/api\/bookings\/[\w-]+$/) && method === 'DELETE') {

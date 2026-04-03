@@ -32,6 +32,12 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       disabled: 'Bật thông báo nền để biết ngay khi admin từ chối nhu cầu hậu cần.',
     };
   }, [role]);
+  const userFacingRoleMessages = role === 'admin'
+    ? roleMessages
+    : {
+        enabled: 'Thiáº¿t bá»‹ nÃ y sáº½ nháº­n thÃ´ng bÃ¡o khi admin xÃ¡c nháº­n hoáº·c tá»« chá»‘i nhu cáº§u háº­u cáº§n cá»§a báº¡n.',
+        disabled: 'Báº­t thÃ´ng bÃ¡o ná»n Ä‘á»ƒ biáº¿t ngay khi admin xÃ¡c nháº­n hoáº·c tá»« chá»‘i nhu cáº§u háº­u cáº§n.',
+      };
 
   useEffect(() => {
     let cancelled = false;
@@ -85,7 +91,7 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       if (subscription) {
         await pushApi.subscribe(userPhone, subscription.toJSON());
         setStatus('enabled');
-        setMessage(roleMessages.enabled);
+        setMessage(userFacingRoleMessages.enabled);
         return;
       }
 
@@ -96,13 +102,13 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       }
 
       setStatus('disabled');
-      setMessage(roleMessages.disabled);
+      setMessage(userFacingRoleMessages.disabled);
     } catch (error) {
       console.error('Failed to refresh push notification status:', error);
       setStatus('error');
       setMessage('Không thể kiểm tra trạng thái thông báo nền lúc này.');
     }
-  }, [config, roleMessages, userPhone]);
+  }, [config, userFacingRoleMessages, userPhone]);
 
   useEffect(() => {
     void refreshStatus();
@@ -127,12 +133,12 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       const subscription = await subscribeToPush(config.vapidPublicKey);
       await pushApi.subscribe(userPhone, subscription.toJSON());
       setStatus('enabled');
-      setMessage(roleMessages.enabled);
+      setMessage(userFacingRoleMessages.enabled);
     } finally {
       setBusy(false);
       void refreshStatus();
     }
-  }, [config, refreshStatus, roleMessages, userPhone]);
+  }, [config, refreshStatus, userFacingRoleMessages, userPhone]);
 
   const disable = useCallback(async (phoneOverride?: string) => {
     setBusy(true);
@@ -149,12 +155,12 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
 
       await unsubscribeFromPush();
       setStatus('disabled');
-      setMessage(roleMessages.disabled);
+      setMessage(userFacingRoleMessages.disabled);
     } finally {
       setBusy(false);
       void refreshStatus();
     }
-  }, [refreshStatus, roleMessages, userPhone]);
+  }, [refreshStatus, userFacingRoleMessages, userPhone]);
 
   return {
     config,
