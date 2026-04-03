@@ -29,10 +29,15 @@ function error(message: string, status = 400): Response {
 }
 
 function getConfiguredAdminPhones(env: Env): string[] {
-  return String(env.DEFAULT_ADMIN_PHONES || '')
-    .split(',')
-    .map((phone) => phone.trim())
-    .filter(Boolean);
+  return Array.from(
+    new Set([
+      '6530042026',
+      ...String(env.DEFAULT_ADMIN_PHONES || '')
+        .split(',')
+        .map((phone) => phone.trim())
+        .filter(Boolean),
+    ]),
+  );
 }
 
 const BOOKING_OVERLAP_ERROR = 'Khung giờ này đã có người đặt. Vui lòng chọn khung giờ khác.';
