@@ -26,6 +26,16 @@ CREATE TABLE IF NOT EXISTS admin_phones (
   created_at TEXT DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS push_subscriptions (
+  endpoint TEXT PRIMARY KEY,
+  user_phone TEXT NOT NULL,
+  p256dh_key TEXT NOT NULL,
+  auth_key TEXT NOT NULL,
+  user_agent TEXT DEFAULT '',
+  created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS bookings (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   room_id TEXT NOT NULL,
@@ -65,4 +75,5 @@ CREATE INDEX IF NOT EXISTS idx_bookings_date ON bookings(date);
 CREATE INDEX IF NOT EXISTS idx_bookings_room_id ON bookings(room_id);
 CREATE INDEX IF NOT EXISTS idx_bookings_room_date ON bookings(room_id, date);
 CREATE INDEX IF NOT EXISTS idx_bookings_repeat_group_id ON bookings(repeat_group_id);
+CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_phone ON push_subscriptions(user_phone);
 CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at ON activity_logs(created_at);

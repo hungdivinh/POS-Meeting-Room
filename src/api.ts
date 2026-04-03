@@ -56,6 +56,12 @@ export interface Need {
   sort_order: number;
 }
 
+export interface PushConfig {
+  enabled: boolean;
+  vapidPublicKey: string | null;
+  appName: string;
+}
+
 // Needs API
 export const needsApi = {
   list: () => request<Need[]>('/api/needs'),
@@ -120,4 +126,18 @@ export const adminPhonesApi = {
   list: () => request<string[]>('/api/admin-phones'),
   add: (phone: string) => request<{ success: boolean }>('/api/admin-phones', { method: 'POST', body: JSON.stringify({ phone }) }),
   remove: (phone: string) => request<{ success: boolean }>(`/api/admin-phones/${encodeURIComponent(phone)}`, { method: 'DELETE' }),
+};
+
+export const pushApi = {
+  getConfig: () => request<PushConfig>('/api/push/config'),
+  subscribe: (userPhone: string, subscription: PushSubscriptionJSON) =>
+    request<{ success: boolean }>('/api/push/subscriptions', {
+      method: 'POST',
+      body: JSON.stringify({ userPhone, subscription }),
+    }),
+  unsubscribe: (userPhone: string, endpoint: string) =>
+    request<{ success: boolean }>('/api/push/subscriptions', {
+      method: 'DELETE',
+      body: JSON.stringify({ userPhone, endpoint }),
+    }),
 };

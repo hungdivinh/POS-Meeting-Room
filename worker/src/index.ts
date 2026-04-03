@@ -1,6 +1,12 @@
+import { buildPushHTTPRequest } from '@pushforge/builder';
+
 export interface Env {
   DB: D1Database;
   DEFAULT_ADMIN_PHONES?: string;
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  PUSH_CONTACT_EMAIL?: string;
+  APP_BASE_URL?: string;
 }
 
 function corsHeaders(origin: string = '*'): Record<string, string> {
@@ -31,8 +37,35 @@ function getConfiguredAdminPhones(env: Env): string[] {
 
 const BOOKING_OVERLAP_ERROR = 'Khung giờ này đã có người đặt. Vui lòng chọn khung giờ khác.';
 
+const DEFAULT_APP_NAME = 'Lich Phong Hop';
+const DEFAULT_APP_URL = 'https://pos-team.io.vn';
 type BookingNeedsStatus = 'pending' | 'confirmed' | 'rejected';
 const BOOKING_NEEDS_STATUSES: BookingNeedsStatus[] = ['pending', 'confirmed', 'rejected'];
+
+interface PushSubscriptionPayload {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: {
+    p256dh: string;
+    auth: string;
+  };
+}
+
+interface StoredPushSubscriptionRow {
+  endpoint: string;
+  user_phone: string;
+  p256dh_key: string;
+  auth_key: string;
+}
+
+interface PushNotificationPayload {
+  title: string;
+  body: string;
+  url: string;
+  tag: string;
+  kind: 'admin-pending' | 'user-rejected';
+  bookingId: string;
+}
 
 interface BookingWriteInput {
   roomId?: unknown;
@@ -136,6 +169,65 @@ function normalizeNeedsStatus(input: unknown): BookingNeedsStatus | null {
   return BOOKING_NEEDS_STATUSES.includes(normalized as BookingNeedsStatus)
     ? (normalized as BookingNeedsStatus)
     : null;
+}
+
+function parsePushSubscription(input: unknown): PushSubscriptionPayload | null {
+  if (!input || typeof input !== 'object') {
+    return null;
+  }
+
+  const record = input as Record<string, unknown>;
+  const keys = record.keys && typeof record.keys === 'object'
+    ? record.keys as Record<string, unknown>
+    : null;
+
+  if (typeof record.endpoint !== 'string' || !record.endpoint.trim()) {
+    return null;
+  }
+
+  if (!keys || typeof keys.p256dh !== 'string' || typeof keys.auth !== 'string') {
+    return null;
+  }
+
+  return {
+    endpoint: record.endpoint.trim(),
+    expirationTime: typeof record.expirationTime === 'number' ? record.expirationTime : null,
+    keys: {
+      p256dh: keys.p256dh,
+      auth: keys.auth,
+    },
+  };
+}
+
+function getPushConfig(env: Env): { enabled: boolean; vapidPublicKey: string | null } {
+  const hasPrivateKey = typeof env.VAPID_PRIVATE_KEY === 'string' && env.VAPID_PRIVATE_KEY.trim().length > 0;
+  const hasPublicKey = typeof env.VAPID_PUBLIC_KEY === 'string' && env.VAPID_PUBLIC_KEY.trim().length > 0;
+
+  return {
+    enabled: hasPrivateKey && hasPublicKey,
+    vapidPublicKey: hasPublicKey ? env.VAPID_PUBLIC_KEY!.trim() : null,
+  };
+}
+
+function getPushAdminContact(env: Env): string {
+  if (typeof env.PUSH_CONTACT_EMAIL === 'string' && env.PUSH_CONTACT_EMAIL.trim()) {
+    return `mailto:${env.PUSH_CONTACT_EMAIL.trim()}`;
+  }
+
+  return DEFAULT_APP_URL;
+}
+
+function getAppBaseUrl(request: Request, env: Env): string {
+  if (typeof env.APP_BASE_URL === 'string' && env.APP_BASE_URL.trim()) {
+    return env.APP_BASE_URL.trim().replace(/\/$/, '');
+  }
+
+  const originHeader = request.headers.get('Origin');
+  if (originHeader) {
+    return originHeader.replace(/\/$/, '');
+  }
+
+  return DEFAULT_APP_URL;
 }
 
 function getNeedsStatusPayload(
@@ -323,6 +415,203 @@ async function ensureBookingSchema(db: D1Database): Promise<void> {
   await ensureBookingNeedsConfirmationColumns(db);
 }
 
+async function ensurePushSubscriptionSchema(db: D1Database): Promise<void> {
+  await db.prepare(
+    `CREATE TABLE IF NOT EXISTS push_subscriptions (
+      endpoint TEXT PRIMARY KEY,
+      user_phone TEXT NOT NULL,
+      p256dh_key TEXT NOT NULL,
+      auth_key TEXT NOT NULL,
+      user_agent TEXT DEFAULT '',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )`
+  ).run();
+
+  await db.prepare('CREATE INDEX IF NOT EXISTS idx_push_subscriptions_user_phone ON push_subscriptions(user_phone)').run();
+}
+
+async function listStoredSubscriptionsForPhones(db: D1Database, phones: string[]): Promise<StoredPushSubscriptionRow[]> {
+  const uniquePhones = Array.from(new Set(phones.map((phone) => phone.trim()).filter(Boolean)));
+  if (uniquePhones.length === 0) {
+    return [];
+  }
+
+  await ensurePushSubscriptionSchema(db);
+  const placeholders = uniquePhones.map(() => '?').join(', ');
+  const result = await db.prepare(
+    `SELECT endpoint, user_phone, p256dh_key, auth_key
+     FROM push_subscriptions
+     WHERE user_phone IN (${placeholders})`
+  ).bind(...uniquePhones).all<StoredPushSubscriptionRow>();
+
+  return result.results ?? [];
+}
+
+async function deleteStoredSubscription(db: D1Database, endpoint: string): Promise<void> {
+  await ensurePushSubscriptionSchema(db);
+  await db.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
+}
+
+async function getAdminPhoneList(env: Env): Promise<string[]> {
+  const result = await env.DB.prepare('SELECT phone FROM admin_phones').all();
+  return Array.from(
+    new Set([
+      ...result.results.map((row: any) => String(row.phone).trim()).filter(Boolean),
+      ...getConfiguredAdminPhones(env),
+    ]),
+  );
+}
+
+async function resolveRoomName(db: D1Database, roomId: string): Promise<string> {
+  const room = await db.prepare('SELECT name FROM rooms WHERE id = ?').bind(roomId).first<{ name?: string }>();
+  return room?.name || roomId;
+}
+
+async function resolveNeedNames(db: D1Database, needIds: string[]): Promise<string[]> {
+  const uniqueNeedIds = Array.from(new Set(needIds.filter(Boolean)));
+  if (uniqueNeedIds.length === 0) {
+    return [];
+  }
+
+  const placeholders = uniqueNeedIds.map(() => '?').join(', ');
+  const result = await db.prepare(
+    `SELECT name
+     FROM needs
+     WHERE id IN (${placeholders})
+     ORDER BY sort_order, name`
+  ).bind(...uniqueNeedIds).all<{ name?: string }>();
+
+  return (result.results ?? [])
+    .map((row) => row.name || '')
+    .filter(Boolean);
+}
+
+async function sendPushNotification(
+  env: Env,
+  subscription: StoredPushSubscriptionRow,
+  payload: PushNotificationPayload,
+): Promise<void> {
+  if (!env.VAPID_PRIVATE_KEY) {
+    return;
+  }
+
+  const notificationIcon = new URL('/icons/icon-192.png', payload.url).toString();
+  const { endpoint, headers, body } = await buildPushHTTPRequest({
+    privateJWK: JSON.parse(env.VAPID_PRIVATE_KEY),
+    subscription: {
+      endpoint: subscription.endpoint,
+      keys: {
+        p256dh: subscription.p256dh_key,
+        auth: subscription.auth_key,
+      },
+    },
+    message: {
+      adminContact: getPushAdminContact(env),
+      payload: {
+        title: payload.title,
+        body: payload.body,
+        url: payload.url,
+        tag: payload.tag,
+        kind: payload.kind,
+        bookingId: payload.bookingId,
+        icon: notificationIcon,
+        badge: notificationIcon,
+      },
+      options: {
+        ttl: 3600,
+        urgency: 'high',
+        topic: payload.tag,
+      },
+    },
+  });
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers,
+    body,
+  });
+
+  if (response.status === 404 || response.status === 410) {
+    await deleteStoredSubscription(env.DB, subscription.endpoint);
+    return;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Push delivery failed with status ${response.status}`);
+  }
+}
+
+async function notifyAdminPendingNeeds(env: Env, request: Request, booking: ReturnType<typeof mapBookingRow>): Promise<void> {
+  const pushConfig = getPushConfig(env);
+  if (!pushConfig.enabled || booking.needsStatus !== 'pending' || booking.needIds.length === 0) {
+    return;
+  }
+
+  const adminPhones = await getAdminPhoneList(env);
+  const subscriptions = await listStoredSubscriptionsForPhones(env.DB, adminPhones);
+  if (subscriptions.length === 0) {
+    return;
+  }
+
+  const [roomName, needNames] = await Promise.all([
+    resolveRoomName(env.DB, booking.roomId),
+    resolveNeedNames(env.DB, booking.needIds),
+  ]);
+  const appBaseUrl = getAppBaseUrl(request, env);
+  const payload: PushNotificationPayload = {
+    title: 'Có nhu cầu hậu cần cần xác nhận',
+    body: `Phòng ${roomName}, ${booking.userPhone}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)}: ${needNames.join(', ') || 'Chưa rõ'}`,
+    url: appBaseUrl,
+    tag: `admin-pending-${booking.id}`,
+    kind: 'admin-pending',
+    bookingId: booking.id,
+  };
+
+  await Promise.all(
+    subscriptions.map(async (subscription) => {
+      try {
+        await sendPushNotification(env, subscription, payload);
+      } catch (error) {
+        console.error('Failed to send admin pending push notification:', error);
+      }
+    }),
+  );
+}
+
+async function notifyUserRejectedNeeds(env: Env, request: Request, booking: ReturnType<typeof mapBookingRow>): Promise<void> {
+  const pushConfig = getPushConfig(env);
+  if (!pushConfig.enabled || booking.needsStatus !== 'rejected') {
+    return;
+  }
+
+  const subscriptions = await listStoredSubscriptionsForPhones(env.DB, [booking.userPhone]);
+  if (subscriptions.length === 0) {
+    return;
+  }
+
+  const roomName = await resolveRoomName(env.DB, booking.roomId);
+  const appBaseUrl = getAppBaseUrl(request, env);
+  const payload: PushNotificationPayload = {
+    title: 'Nhu cầu hậu cần đã bị từ chối',
+    body: `Phòng ${roomName}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)}. Vui lòng mở ứng dụng để xem chi tiết.`,
+    url: appBaseUrl,
+    tag: `user-rejected-${booking.id}`,
+    kind: 'user-rejected',
+    bookingId: booking.id,
+  };
+
+  await Promise.all(
+    subscriptions.map(async (subscription) => {
+      try {
+        await sendPushNotification(env, subscription, payload);
+      } catch (error) {
+        console.error('Failed to send user rejected push notification:', error);
+      }
+    }),
+  );
+}
+
 function mapBookingRow(r: any) {
   const hasNeeds = Boolean(r.need_ids && String(r.need_ids).length > 0);
   const needsStatus = normalizeNeedsStatus(r.needs_status)
@@ -391,6 +680,69 @@ export default {
       if (path.match(/^\/api\/rooms\/[\w-]+$/) && method === 'DELETE') {
         const id = path.split('/').pop()!;
         await env.DB.prepare('DELETE FROM rooms WHERE id = ?').bind(id).run();
+        return json({ success: true });
+      }
+
+      // === WEB PUSH ===
+      if (path === '/api/push/config' && method === 'GET') {
+        const pushConfig = getPushConfig(env);
+        return json({
+          enabled: pushConfig.enabled,
+          vapidPublicKey: pushConfig.vapidPublicKey,
+          appName: DEFAULT_APP_NAME,
+        });
+      }
+
+      if (path === '/api/push/subscriptions' && method === 'POST') {
+        await ensurePushSubscriptionSchema(env.DB);
+        const body = await request.json<{ userPhone?: unknown; subscription?: unknown }>();
+        const userPhone = typeof body.userPhone === 'string' ? body.userPhone.trim() : '';
+        const subscription = parsePushSubscription(body.subscription);
+
+        if (!userPhone) {
+          return error('Thiếu số điện thoại để lưu thông báo nền.');
+        }
+
+        if (!subscription) {
+          return error('Push subscription không hợp lệ.');
+        }
+
+        await env.DB.prepare(
+          `INSERT INTO push_subscriptions (endpoint, user_phone, p256dh_key, auth_key, user_agent, updated_at)
+           VALUES (?, ?, ?, ?, ?, datetime('now'))
+           ON CONFLICT(endpoint) DO UPDATE SET
+             user_phone = excluded.user_phone,
+             p256dh_key = excluded.p256dh_key,
+             auth_key = excluded.auth_key,
+             user_agent = excluded.user_agent,
+             updated_at = datetime('now')`
+        ).bind(
+          subscription.endpoint,
+          userPhone,
+          subscription.keys.p256dh,
+          subscription.keys.auth,
+          request.headers.get('User-Agent') || '',
+        ).run();
+
+        return json({ success: true }, 201);
+      }
+
+      if (path === '/api/push/subscriptions' && method === 'DELETE') {
+        await ensurePushSubscriptionSchema(env.DB);
+        const body = await request.json<{ userPhone?: unknown; endpoint?: unknown }>();
+        const userPhone = typeof body.userPhone === 'string' ? body.userPhone.trim() : '';
+        const endpoint = typeof body.endpoint === 'string' ? body.endpoint.trim() : '';
+
+        if (!endpoint) {
+          return error('Thiếu endpoint để gỡ thông báo nền.');
+        }
+
+        if (userPhone) {
+          await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ? AND user_phone = ?').bind(endpoint, userPhone).run();
+        } else {
+          await env.DB.prepare('DELETE FROM push_subscriptions WHERE endpoint = ?').bind(endpoint).run();
+        }
+
         return json({ success: true });
       }
 
@@ -586,7 +938,14 @@ export default {
           });
         }
 
-        return json(Array.isArray(body) ? created : created[0], 201);
+        const createdResponse = Array.isArray(body) ? created : created[0];
+        const mappedCreated = (Array.isArray(createdResponse) ? createdResponse : [createdResponse]) as Array<ReturnType<typeof mapBookingRow>>;
+
+        await Promise.all(
+          mappedCreated.map((booking) => notifyAdminPendingNeeds(env, request, booking)),
+        );
+
+        return json(createdResponse, 201);
       }
 
       if (path.match(/^\/api\/bookings\/[\w-]+$/) && method === 'PUT') {
@@ -692,7 +1051,7 @@ export default {
           return json(mapBookingRow(unchanged));
         }
 
-        return json({
+        const updatedResponse = {
           id,
           ...body,
           needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],
@@ -701,7 +1060,11 @@ export default {
           needsStatusUpdatedAt,
           needsConfirmed: needsConfirmed === 1,
           needsConfirmedAt,
-        });
+        };
+
+        await notifyAdminPendingNeeds(env, request, updatedResponse as ReturnType<typeof mapBookingRow>);
+
+        return json(updatedResponse);
       }
 
       if (path.match(/^\/api\/bookings\/[\w-]+\/needs-status$/) && method === 'PUT') {
@@ -740,7 +1103,12 @@ export default {
           return error('Booking not found', 404);
         }
 
-        return json(mapBookingRow(updated));
+        const mappedUpdated = mapBookingRow(updated);
+        if (mappedUpdated.needsStatus === 'rejected') {
+          await notifyUserRejectedNeeds(env, request, mappedUpdated);
+        }
+
+        return json(mappedUpdated);
       }
 
       if (path.match(/^\/api\/bookings\/[\w-]+\/confirm-needs$/) && method === 'PUT') {

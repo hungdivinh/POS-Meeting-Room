@@ -3,6 +3,7 @@ import { roomsApi, bookingsApi, logsApi, needsApi, adminPhonesApi, type Room, ty
 import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { Bell, Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2, ClipboardList } from 'lucide-react';
 import meetingLogo from '../Logo/Picture1.png';
+import { usePushNotifications } from './usePushNotifications';
 
 interface UserProfile {
   name: string;
@@ -125,6 +126,14 @@ export default function App() {
   const [newAdminPhone, setNewAdminPhone] = useState('');
 
   const isAdmin = (userProfile?.name === 'admin-pos' && userProfile?.phone === '6530042026') || adminPhones.includes(userProfile?.phone || '') || false;
+  const {
+    config: pushConfig,
+    status: pushStatus,
+    message: pushMessage,
+    busy: pushBusy,
+    enable: enablePushNotifications,
+    disable: disablePushNotifications,
+  } = usePushNotifications(userProfile?.phone, isAdmin ? 'admin' : 'user');
 
   // Modals state
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
@@ -286,6 +295,8 @@ export default function App() {
       });
   }, [bookingNeedsPending, isAdmin, needs, needsNotificationBookings, rooms, userProfile]);
   const notificationCount = notificationItems.length;
+  const pushEnabled = pushStatus === 'enabled';
+  const pushButtonLabel = pushEnabled ? 'Tắt thông báo nền' : 'Bật thông báo nền';
 
   const fetchRooms = useCallback(async (showLoading = false) => {
     if (showLoading) {
@@ -461,6 +472,10 @@ export default function App() {
   };
 
   const handleLogout = () => {
+    const currentPhone = userProfile?.phone;
+    void disablePushNotifications(currentPhone).catch((error) => {
+      console.error('Failed to disable push notifications during logout:', error);
+    });
     localStorage.removeItem('meetingUserProfile');
     setUserProfile(null);
     setNotificationBookings([]);
@@ -468,6 +483,29 @@ export default function App() {
     setIsNotificationPanelOpen(false);
     setProfileName('');
     setProfilePhone('');
+  };
+
+  const handleTogglePushNotifications = async () => {
+    try {
+      if (pushEnabled) {
+        await disablePushNotifications();
+        alert('Đã tắt thông báo nền trên thiết bị này.');
+        return;
+      }
+
+      await enablePushNotifications();
+      alert(
+        isAdmin
+          ? 'Đã bật thông báo nền. Admin sẽ nhận thông báo khi có lịch cần xác nhận nhu cầu.'
+          : 'Đã bật thông báo nền. Bạn sẽ nhận thông báo nếu admin từ chối nhu cầu hậu cần.',
+      );
+    } catch (error) {
+      console.error('Push notification toggle error:', error);
+      const message = error instanceof Error && error.message
+        ? error.message
+        : 'Không thể thay đổi trạng thái thông báo nền lúc này.';
+      alert(message);
+    }
   };
 
   const handleUpdateBookingNeedsStatus = async (booking: Booking, status: BookingNeedsStatus) => {
@@ -913,6 +951,47 @@ export default function App() {
         </span>
       )}
     </button>
+  );
+
+  const renderPushSettingsCard = () => (
+    <div className="mb-3 rounded-xl border border-blue-100 bg-blue-50 px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-gray-900">Thông báo nền</div>
+          <p className="mt-1 text-xs leading-5 text-gray-600">{pushMessage}</p>
+          {!pushConfig?.enabled && (
+            <p className="mt-1 text-[11px] leading-5 text-amber-700">
+              Server chưa có khóa Web Push. Khi cần deploy thật, chỉ cần thêm VAPID key vào Worker.
+            </p>
+          )}
+        </div>
+        <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-semibold ${
+          pushEnabled ? 'bg-emerald-100 text-emerald-700' : 'bg-white text-gray-500'
+        }`}>
+          {pushEnabled ? 'Đã bật' : 'Chưa bật'}
+        </span>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={handleTogglePushNotifications}
+          disabled={pushBusy || pushStatus === 'checking'}
+          className={`rounded-lg px-3 py-2 text-xs font-semibold transition ${
+            pushEnabled
+              ? 'bg-white text-rose-700 border border-rose-200 hover:bg-rose-50'
+              : 'bg-blue-600 text-white hover:bg-blue-700'
+          } ${pushBusy || pushStatus === 'checking' ? 'cursor-not-allowed opacity-60' : ''}`}
+        >
+          {pushBusy ? 'Đang xử lý...' : pushButtonLabel}
+        </button>
+        {pushStatus === 'blocked' && (
+          <span className="text-[11px] text-rose-600">
+            Trình duyệt đang chặn quyền thông báo.
+          </span>
+        )}
+      </div>
+    </div>
   );
 
   const renderMobileDayView = () => {
@@ -1751,6 +1830,8 @@ export default function App() {
                 Đóng
               </button>
             </div>
+
+            {renderPushSettingsCard()}
 
             {notificationItems.length === 0 ? (
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
