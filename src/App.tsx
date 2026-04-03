@@ -1,11 +1,20 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { roomsApi, bookingsApi, logsApi, needsApi, adminPhonesApi, type Room, type Booking, type ActivityLog, type Need } from './api';
+import { roomsApi, bookingsApi, logsApi, needsApi, adminPhonesApi, type Room, type Booking, type ActivityLog, type Need, type BookingNeedsStatus } from './api';
 import { format, addDays, subDays, startOfWeek, endOfWeek, parseISO, eachDayOfInterval, getDay, isAfter, startOfDay, endOfDay } from 'date-fns';
-import { Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2, ClipboardList } from 'lucide-react';
+import { Bell, Calendar, ChevronLeft, ChevronRight, Plus, Trash2, User as UserIcon, LayoutGrid, List, Settings, Edit2, ClipboardList } from 'lucide-react';
+import meetingLogo from '../Logo/Picture1.png';
 
 interface UserProfile {
   name: string;
   phone: string;
+}
+
+interface BookingNotificationItem {
+  id: string;
+  booking: Booking;
+  title: string;
+  subtitle: string;
+  kind: 'user-pending' | 'user-rejected' | 'admin-pending';
 }
 
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8 AM to 6 PM
@@ -13,6 +22,58 @@ const DAYS_OF_WEEK = [1, 2, 3, 4, 5, 6, 0]; // Monday to Sunday (0 is Sunday in 
 const DAY_NAMES = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
 const ROOMS_CACHE_KEY = 'meetingRoomsCacheV1';
 const ROOMS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function normalizeStatusText(status?: string): string {
+  if (!status) return '';
+
+  return status
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isRoomActiveStatus(status?: string): boolean {
+  const normalized = normalizeStatusText(status);
+  if (!normalized) return true;
+
+  if (
+    normalized.includes('tam ngung') ||
+    normalized.includes('tam dung') ||
+    normalized.includes('ngung su dung') ||
+    normalized.includes('khong hoat dong') ||
+    normalized.includes('bao tri')
+  ) {
+    return false;
+  }
+
+  if (normalized.includes('hoat dong')) {
+    return true;
+  }
+
+  return true;
+}
+
+function hasBookingNeeds(booking?: Pick<Booking, 'needIds'> | null): boolean {
+  return (booking?.needIds?.length ?? 0) > 0;
+}
+
+function resolveBookingNeedsStatus(
+  booking?: Pick<Booking, 'needIds' | 'needsStatus' | 'needsConfirmed'> | null,
+): BookingNeedsStatus {
+  if (!hasBookingNeeds(booking)) {
+    return 'confirmed';
+  }
+
+  if (booking?.needsStatus === 'pending' || booking?.needsStatus === 'confirmed' || booking?.needsStatus === 'rejected') {
+    return booking.needsStatus;
+  }
+
+  return booking?.needsConfirmed === false ? 'pending' : 'confirmed';
+}
 
 function readRoomsCache(): Room[] {
   if (typeof window === 'undefined') return [];
@@ -57,6 +118,7 @@ export default function App() {
   const [rooms, setRooms] = useState<Room[]>(() => readRoomsCache());
   const [roomsLoading, setRoomsLoading] = useState<boolean>(() => readRoomsCache().length === 0);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [notificationBookings, setNotificationBookings] = useState<Booking[]>([]);
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [viewMode, setViewMode] = useState<'day' | 'week'>('day');
   const [adminPhones, setAdminPhones] = useState<string[]>([]);
@@ -69,6 +131,7 @@ export default function App() {
   const [isBookingModalOpen, setIsBookingModalOpen] = useState(false);
   const [isRoomModalOpen, setIsRoomModalOpen] = useState(false);
   const [selectedBookingDetails, setSelectedBookingDetails] = useState<Booking | null>(null);
+  const [isNotificationPanelOpen, setIsNotificationPanelOpen] = useState(false);
   
   // Profile Form
   const [profileName, setProfileName] = useState('');
@@ -140,6 +203,89 @@ export default function App() {
   const canManageSelectedBooking = selectedBookingDetails
     ? selectedBookingDetails.userPhone === userProfile?.phone || isAdmin
     : false;
+  const bookingNeedsPending = useCallback(
+    (booking: Booking) => hasBookingNeeds(booking) && resolveBookingNeedsStatus(booking) === 'pending',
+    [],
+  );
+  const bookingNeedsRejected = useCallback(
+    (booking: Booking) => hasBookingNeeds(booking) && resolveBookingNeedsStatus(booking) === 'rejected',
+    [],
+  );
+  const selectedBookingNeedsStatus = selectedBookingDetails ? resolveBookingNeedsStatus(selectedBookingDetails) : 'confirmed';
+  const selectedBookingHasNeeds = hasBookingNeeds(selectedBookingDetails);
+  const needsNotificationBookings = useMemo(() => {
+    const merged = new Map<string, Booking>();
+    const shouldInclude = (booking: Booking) => {
+      if (!hasBookingNeeds(booking)) {
+        return false;
+      }
+
+      if (isAdmin) {
+        return resolveBookingNeedsStatus(booking) === 'pending';
+      }
+
+      return booking.userPhone === userProfile?.phone && ['pending', 'rejected'].includes(resolveBookingNeedsStatus(booking));
+    };
+
+    bookings.filter(shouldInclude).forEach((booking) => {
+      merged.set(booking.id, booking);
+    });
+
+    notificationBookings.filter(shouldInclude).forEach((booking) => {
+      merged.set(booking.id, booking);
+    });
+
+    return [...merged.values()].sort((a, b) => {
+      const aTime = parseISO(a.needsStatusUpdatedAt || a.startTime).getTime();
+      const bTime = parseISO(b.needsStatusUpdatedAt || b.startTime).getTime();
+      return bTime - aTime;
+    });
+  }, [bookings, isAdmin, notificationBookings, userProfile?.phone]);
+  const notificationItems = useMemo<BookingNotificationItem[]>(() => {
+    if (!userProfile) return [];
+
+    const makeSubtitle = (booking: Booking, roomName: string) =>
+      `${roomName} • ${booking.date} • ${format(parseISO(booking.startTime), 'HH:mm')} - ${format(parseISO(booking.endTime), 'HH:mm')}`;
+
+    if (isAdmin) {
+      return needsNotificationBookings
+        .filter((booking) => bookingNeedsPending(booking))
+        .map((booking) => {
+          const roomName = rooms.find((room) => room.id === booking.roomId)?.name || booking.roomId;
+          const needNames = (booking.needIds || [])
+            .map((needId) => needs.find((need) => need.id === needId)?.name)
+            .filter(Boolean)
+            .join(', ');
+
+          return {
+            id: `admin-${booking.id}`,
+            booking,
+            kind: 'admin-pending',
+            title: `Phòng ${roomName}, ${format(parseISO(booking.startTime), 'HH:mm')} - ${format(parseISO(booking.endTime), 'HH:mm')}, ${booking.userPhone} yêu cầu nhu cầu: ${needNames || 'Chưa rõ'}.`,
+            subtitle: 'Chờ admin xử lý nhu cầu hậu cần.',
+          };
+        });
+    }
+
+    return needsNotificationBookings
+      .filter((booking) => booking.userPhone === userProfile.phone)
+      .map((booking) => {
+        const roomName = rooms.find((room) => room.id === booking.roomId)?.name || booking.roomId;
+        const status = resolveBookingNeedsStatus(booking);
+
+        return {
+          id: `user-${status}-${booking.id}`,
+          booking,
+          kind: status === 'rejected' ? 'user-rejected' : 'user-pending',
+          title:
+            status === 'rejected'
+              ? 'Nhu cầu hậu cần đã bị admin từ chối.'
+              : 'Phòng đã được đặt, chờ admin xác nhận nhu cầu.',
+          subtitle: makeSubtitle(booking, roomName),
+        };
+      });
+  }, [bookingNeedsPending, isAdmin, needs, needsNotificationBookings, rooms, userProfile]);
+  const notificationCount = notificationItems.length;
 
   const fetchRooms = useCallback(async (showLoading = false) => {
     if (showLoading) {
@@ -190,6 +336,28 @@ export default function App() {
     }
   }, [selectedDate, viewMode]);
 
+  const fetchPendingNeedsNotifications = useCallback(async () => {
+    if (!userProfile?.phone) {
+      setNotificationBookings([]);
+      return;
+    }
+
+    try {
+      const statuses: BookingNeedsStatus[] = isAdmin ? ['pending'] : ['pending', 'rejected'];
+      const data = await bookingsApi.listNeedsNotifications(statuses, isAdmin ? undefined : userProfile.phone);
+      data.sort((a, b) => parseISO(b.needsStatusUpdatedAt || b.startTime).getTime() - parseISO(a.needsStatusUpdatedAt || a.startTime).getTime());
+      setNotificationBookings(
+        data.filter((booking) =>
+          isAdmin
+            ? bookingNeedsPending(booking)
+            : booking.userPhone === userProfile.phone && (bookingNeedsPending(booking) || bookingNeedsRejected(booking)),
+        ),
+      );
+    } catch (e) {
+      console.error('Failed to fetch pending needs notifications:', e);
+    }
+  }, [bookingNeedsPending, bookingNeedsRejected, isAdmin, userProfile?.phone]);
+
   useEffect(() => {
     const storedProfile = localStorage.getItem('meetingUserProfile');
     if (storedProfile) {
@@ -216,11 +384,37 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchBookings]);
 
+  useEffect(() => {
+    fetchPendingNeedsNotifications();
+    const interval = setInterval(fetchPendingNeedsNotifications, 10000);
+    return () => clearInterval(interval);
+  }, [fetchPendingNeedsNotifications]);
+
+  useEffect(() => {
+    const handleWindowFocus = () => {
+      fetchPendingNeedsNotifications();
+    };
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        fetchPendingNeedsNotifications();
+      }
+    };
+
+    window.addEventListener('focus', handleWindowFocus);
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener('focus', handleWindowFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [fetchPendingNeedsNotifications]);
+
   // Sort rooms: active first, then inactive; within each group sort by name
   const sortedRooms = useMemo(() => {
     return [...rooms].sort((a, b) => {
-      const aActive = a.status?.includes('hoạt động') ? 0 : 1;
-      const bActive = b.status?.includes('hoạt động') ? 0 : 1;
+      const aActive = isRoomActiveStatus(a.status) ? 0 : 1;
+      const bActive = isRoomActiveStatus(b.status) ? 0 : 1;
       if (aActive !== bActive) return aActive - bActive;
       return a.name.localeCompare(b.name, 'vi');
     });
@@ -269,9 +463,41 @@ export default function App() {
   const handleLogout = () => {
     localStorage.removeItem('meetingUserProfile');
     setUserProfile(null);
+    setNotificationBookings([]);
     setIsProfileModalOpen(true);
+    setIsNotificationPanelOpen(false);
     setProfileName('');
     setProfilePhone('');
+  };
+
+  const handleUpdateBookingNeedsStatus = async (booking: Booking, status: BookingNeedsStatus) => {
+    try {
+      const updatedBooking = await bookingsApi.updateNeedsStatus(booking.id, status);
+      const roomName = rooms.find((room) => room.id === updatedBooking.roomId)?.name || updatedBooking.roomId;
+      const needNames = (updatedBooking.needIds || [])
+        .map((needId) => needs.find((need) => need.id === needId)?.name)
+        .filter(Boolean)
+        .join(', ');
+
+      setBookings((current) => current.map((item) => (item.id === updatedBooking.id ? updatedBooking : item)));
+      setSelectedBookingDetails((current) => (current?.id === updatedBooking.id ? updatedBooking : current));
+      setIsNotificationPanelOpen(false);
+      fetchPendingNeedsNotifications();
+
+      const needsActionLabel = status === 'rejected' ? 'Từ chối nhu cầu hậu cần' : 'Xác nhận nhu cầu hậu cần';
+      logActivity(
+        needsActionLabel,
+        `Phòng: ${roomName}, Giờ: ${format(parseISO(updatedBooking.startTime), 'HH:mm')} - ${format(parseISO(updatedBooking.endTime), 'HH:mm')}, SĐT: ${updatedBooking.userPhone}, Nhu cầu: ${needNames || 'Không xác định'}`,
+      );
+    } catch (error) {
+      console.error('Update needs status error:', error);
+      const message = error instanceof Error && error.message
+        ? error.message
+        : status === 'rejected'
+          ? 'Không thể từ chối nhu cầu lúc này.'
+          : 'Không thể xác nhận nhu cầu lúc này.';
+      alert(message);
+    }
   };
 
   const findOverlap = (roomId: string, startIso: string, endIso: string, dateStr: string, excludeBookingId?: string) => {
@@ -437,6 +663,7 @@ export default function App() {
       setBAttendeeCount('');
       setBColor('');
       fetchBookings();
+      fetchPendingNeedsNotifications();
     } catch (error) {
       console.error('Booking error:', error);
       const message = error instanceof Error && error.message
@@ -470,6 +697,7 @@ export default function App() {
             logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Ngày: ${booking?.date}`);
             setConfirmDialog(prev => ({ ...prev, isOpen: false }));
             fetchBookings();
+            fetchPendingNeedsNotifications();
           } catch (error) {
             console.error('Delete booking error:', error);
           }
@@ -485,6 +713,7 @@ export default function App() {
       logActivity('Xóa đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Ngày: ${booking?.date}`);
       setDeleteChainDialog(prev => ({ ...prev, isOpen: false }));
       fetchBookings();
+      fetchPendingNeedsNotifications();
     } catch (error) {
       console.error('Delete booking error:', error);
     }
@@ -497,6 +726,7 @@ export default function App() {
       logActivity('Xóa chuỗi đặt phòng', `Phòng: ${roomName}, Người đặt: ${booking?.userName} (${booking?.userPhone}), Chuỗi: ${booking?.repeatGroupId}`);
       setDeleteChainDialog(prev => ({ ...prev, isOpen: false }));
       fetchBookings();
+      fetchPendingNeedsNotifications();
     } catch (error) {
       console.error('Delete chain error:', error);
     }
@@ -532,6 +762,7 @@ export default function App() {
   };
 
   const openBookingDetailsModal = (booking: Booking) => {
+    setIsNotificationPanelOpen(false);
     setSelectedBookingDetails(booking);
   };
 
@@ -653,6 +884,37 @@ export default function App() {
     }
   };
 
+  const renderNeedsStatusTag = (status: BookingNeedsStatus, compact = false) => {
+    if (status === 'confirmed') return null;
+    const classes = status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
+    return (
+      <span className={`inline-flex rounded-full ${classes} ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-xs'} font-semibold`}>
+        {status === 'rejected' ? 'Nhu cầu bị từ chối' : 'Chờ admin xác nhận'}
+      </span>
+    );
+  };
+
+  const renderNotificationButton = (compact = false) => (
+    <button
+      type="button"
+      onClick={() => {
+        fetchPendingNeedsNotifications();
+        setIsNotificationPanelOpen((open) => !open);
+      }}
+      className={`relative flex items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 shadow-sm transition hover:border-blue-300 hover:text-blue-600 ${
+        compact ? 'h-8 w-8' : 'h-9 w-9'
+      }`}
+      aria-label="Thông báo"
+    >
+      <Bell size={compact ? 16 : 18} />
+      {notificationCount > 0 && (
+        <span className="absolute -right-1 -top-1 min-w-[18px] rounded-full bg-red-500 px-1 py-0.5 text-[10px] font-bold leading-none text-white">
+          {notificationCount > 9 ? '9+' : notificationCount}
+        </span>
+      )}
+    </button>
+  );
+
   const renderMobileDayView = () => {
     const dateStr = format(selectedDate, 'yyyy-MM-dd');
 
@@ -668,7 +930,7 @@ export default function App() {
           </div>
         ) : (
           sortedRooms.map(room => {
-            const isActive = room.status?.includes('hoạt động');
+            const isActive = isRoomActiveStatus(room.status);
             const dayBookings = bookings
               .filter(b => b.roomId === room.id && b.date === dateStr)
               .sort((a, b) => parseISO(a.startTime).getTime() - parseISO(b.startTime).getTime());
@@ -720,6 +982,7 @@ export default function App() {
                         const bEnd = parseISO(booking.endTime);
                         const isOwner = booking.userPhone === userProfile?.phone;
                         const canEdit = isOwner || isAdmin;
+                        const needsStatus = resolveBookingNeedsStatus(booking);
                         const colors = getBookingColors(booking);
                         const bgStyle = colors.length === 1
                           ? { backgroundColor: colors[0] }
@@ -740,6 +1003,7 @@ export default function App() {
                                 </div>
                                 <div className="text-sm text-gray-800">{booking.userName}</div>
                                 <div className="text-xs text-gray-600">SĐT: {booking.userPhone}</div>
+                                {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-2">{renderNeedsStatusTag(needsStatus)}</div>}
                               </div>
 
                               {canEdit && (
@@ -825,6 +1089,7 @@ export default function App() {
                     const bEnd = parseISO(booking.endTime);
                     const isOwner = booking.userPhone === userProfile?.phone;
                     const canEdit = isOwner || isAdmin;
+                    const needsStatus = resolveBookingNeedsStatus(booking);
                     const room = rooms.find(r => r.id === booking.roomId);
                     const colors = getBookingColors(booking);
                     const bgStyle = colors.length === 1
@@ -846,6 +1111,7 @@ export default function App() {
                             </div>
                             <div className="mt-1 text-sm text-gray-800">{room?.name || 'Phòng chưa xác định'}</div>
                             <div className="text-xs text-gray-600">{booking.userName} - {booking.userPhone}</div>
+                            {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-2">{renderNeedsStatusTag(needsStatus)}</div>}
                           </div>
 
                           {canEdit && (
@@ -915,7 +1181,7 @@ export default function App() {
               <div className="p-8 text-center text-gray-500">Chưa có phòng họp nào.</div>
             ) : (
               sortedRooms.map(room => {
-                const isActive = room.status?.includes('hoạt động');
+                const isActive = isRoomActiveStatus(room.status);
                 return (
                 <div key={room.id} className={`flex group ${!isActive ? 'opacity-60 bg-gray-50' : ''}`}>
                   {/* Room Info */}
@@ -951,8 +1217,8 @@ export default function App() {
                       return (
                         <div 
                           key={hour} 
-                          className={`flex-1 border-r border-gray-100 min-w-[120px] relative transition-colors ${room.status?.includes('hoạt động') ? 'hover:bg-blue-50 cursor-pointer' : ''}`}
-                          onClick={() => room.status?.includes('hoạt động') && openBookingModalWithDefaults(room.id, format(selectedDate, 'yyyy-MM-dd'), hour)}
+                          className={`flex-1 border-r border-gray-100 min-w-[120px] relative transition-colors ${isRoomActiveStatus(room.status) ? 'hover:bg-blue-50 cursor-pointer' : ''}`}
+                          onClick={() => isRoomActiveStatus(room.status) && openBookingModalWithDefaults(room.id, format(selectedDate, 'yyyy-MM-dd'), hour)}
                         >
                         </div>
                       );
@@ -976,6 +1242,7 @@ export default function App() {
 
                       const isOwner = booking.userPhone === userProfile?.phone;
                       const canEdit = isOwner || isAdmin;
+                      const needsStatus = resolveBookingNeedsStatus(booking);
                       const colors = getBookingColors(booking);
                       const bgStyle = colors.length === 1
                         ? { backgroundColor: colors[0] }
@@ -1000,6 +1267,7 @@ export default function App() {
                           <div className="text-xs text-gray-600 truncate">
                             SĐT: {booking.userPhone}
                           </div>
+                          {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1">{renderNeedsStatusTag(needsStatus, true)}</div>}
                           {booking.project && <div className="text-xs text-gray-700 truncate">DA: {booking.project}</div>}
                           {booking.purpose && <div className="text-xs text-gray-600 truncate">{booking.purpose}</div>}
                           {needNames.length > 0 && <div className="text-xs text-gray-800 truncate font-medium">NC: {needNames.join(', ')}</div>}
@@ -1070,7 +1338,7 @@ export default function App() {
               <div className="p-8 text-center text-gray-500">Chưa có phòng họp nào.</div>
             ) : (
               sortedRooms.map(room => {
-                const isActive = room.status?.includes('hoạt động');
+                const isActive = isRoomActiveStatus(room.status);
                 return (
                 <div key={room.id} className={`flex border-b-2 border-gray-300 ${!isActive ? 'opacity-60 bg-gray-50' : ''}`}>
                   {/* Room Name */}
@@ -1103,9 +1371,9 @@ export default function App() {
                           return (
                             <div 
                               key={`morning-${index}`} 
-                              className={`flex-1 flex flex-col border-r border-gray-200 p-1 pb-8 min-w-[120px] relative h-full ${room.status?.includes('hoạt động') ? 'hover:bg-gray-50 cursor-pointer' : ''}`}
+                              className={`flex-1 flex flex-col border-r border-gray-200 p-1 pb-8 min-w-[120px] relative h-full ${isRoomActiveStatus(room.status) ? 'hover:bg-gray-50 cursor-pointer' : ''}`}
                               onClick={(e) => {
-                                if (room.status?.includes('hoạt động')) {
+                                if (isRoomActiveStatus(room.status)) {
                                   openBookingModalWithDefaults(room.id, dateStr, 8);
                                 }
                               }}
@@ -1115,6 +1383,7 @@ export default function App() {
                                 const bEnd = parseISO(booking.endTime);
                                 const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
+                                const needsStatus = resolveBookingNeedsStatus(booking);
                                 const wColors = getBookingColors(booking);
                                 const wBgStyle = wColors.length === 1
                                   ? { backgroundColor: wColors[0] }
@@ -1131,6 +1400,7 @@ export default function App() {
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
                                       {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
                                     </div>
+                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1">{renderNeedsStatusTag(needsStatus, true)}</div>}
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
                                     {wNeedNames.length > 0 && <div className="text-gray-800 font-medium">NC: {wNeedNames.join(', ')}</div>}
@@ -1180,9 +1450,9 @@ export default function App() {
                           return (
                             <div 
                               key={`afternoon-${index}`} 
-                              className={`flex-1 flex flex-col border-r border-gray-200 p-1 pb-8 min-w-[120px] relative h-full ${room.status?.includes('hoạt động') ? 'hover:bg-yellow-50/50 cursor-pointer' : ''}`}
+                              className={`flex-1 flex flex-col border-r border-gray-200 p-1 pb-8 min-w-[120px] relative h-full ${isRoomActiveStatus(room.status) ? 'hover:bg-yellow-50/50 cursor-pointer' : ''}`}
                               onClick={(e) => {
-                                if (room.status?.includes('hoạt động')) {
+                                if (isRoomActiveStatus(room.status)) {
                                   openBookingModalWithDefaults(room.id, dateStr, 13);
                                 }
                               }}
@@ -1192,6 +1462,7 @@ export default function App() {
                                 const bEnd = parseISO(booking.endTime);
                                 const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
+                                const needsStatus = resolveBookingNeedsStatus(booking);
                                 
                                 return (
                                   <div 
@@ -1203,6 +1474,7 @@ export default function App() {
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal">
                                       {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
                                     </div>
+                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1">{renderNeedsStatusTag(needsStatus, true)}</div>}
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
                                     {canEdit && (
@@ -1249,8 +1521,12 @@ export default function App() {
       <header className="md:hidden bg-white border-b border-gray-200 px-3 py-3 sticky top-0 z-30 shadow-sm">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <h1 className="text-lg font-bold text-blue-900">Lịch Phòng Họp</h1>
+            <h1 className="flex items-center gap-2 text-lg font-bold text-blue-900">
+              <img src={meetingLogo} alt="Logo lịch phòng họp" className="h-9 w-9 shrink-0 rounded-lg object-contain" />
+              <span className="truncate">Lịch Phòng Họp</span>
+            </h1>
             <div className="mt-1 flex items-center gap-2 text-sm font-medium text-gray-600">
+              {renderNotificationButton(true)}
               <div className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">
                 {userProfile?.name.charAt(0).toUpperCase() || <UserIcon size={14} />}
               </div>
@@ -1354,7 +1630,10 @@ export default function App() {
       {/* Desktop Header */}
       <header className="hidden md:flex bg-white border-b border-gray-200 px-6 py-4 items-center justify-between sticky top-0 z-30 shadow-sm">
         <div className="flex items-center gap-6">
-          <h1 className="text-2xl font-bold text-blue-900">Lịch Phòng Họp</h1>
+          <h1 className="flex items-center gap-3 text-2xl font-bold text-blue-900">
+            <img src={meetingLogo} alt="Logo lịch phòng họp" className="h-11 w-11 shrink-0 rounded-xl object-contain" />
+            <span>Lịch Phòng Họp</span>
+          </h1>
           
           <div className="flex bg-gray-100 p-1 rounded-lg">
             <button
@@ -1435,6 +1714,7 @@ export default function App() {
               Tạo phòng mẫu
             </button>
           )}
+          {renderNotificationButton()}
           <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
             <div className="w-8 h-8 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center font-bold">
               {userProfile?.name.charAt(0).toUpperCase() || <UserIcon size={16} />}
@@ -1449,6 +1729,83 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {isNotificationPanelOpen && (
+        <div className="fixed inset-0 z-[45]" onClick={() => setIsNotificationPanelOpen(false)}>
+          <div
+            className="absolute right-3 top-16 w-[min(92vw,380px)] rounded-2xl border border-gray-200 bg-white p-3 shadow-2xl md:right-6 md:top-20"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-gray-900">Thông báo</h3>
+                <p className="text-xs text-gray-500">
+                  {notificationCount > 0 ? `${notificationCount} thông báo đang chờ xử lý` : 'Hiện chưa có thông báo mới'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsNotificationPanelOpen(false)}
+                className="rounded-md px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700"
+              >
+                Đóng
+              </button>
+            </div>
+
+            {notificationItems.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                Không có thông báo mới.
+              </div>
+            ) : (
+              <div className="max-h-[60vh] space-y-2 overflow-y-auto pr-1">
+                {notificationItems.map((item) => {
+                  const isAdminPending = item.kind === 'admin-pending';
+                  const isUserRejected = item.kind === 'user-rejected';
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`rounded-xl border px-4 py-3 text-left transition ${
+                        isUserRejected
+                          ? 'border-rose-200 bg-rose-50'
+                          : 'border-gray-200 bg-gray-50 hover:border-blue-300 hover:bg-blue-50'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => openBookingDetailsModal(item.booking)}
+                        className="w-full text-left"
+                      >
+                        <div className="text-sm font-medium text-gray-900">{item.title}</div>
+                        <div className="mt-1 text-xs text-gray-600">{item.subtitle}</div>
+                      </button>
+
+                      {isAdminPending && (
+                        <div className="mt-3 flex justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateBookingNeedsStatus(item.booking, 'rejected')}
+                            className="rounded-lg border border-rose-200 bg-white px-2.5 py-1 text-xs font-medium text-rose-700 transition hover:bg-rose-50"
+                          >
+                            Từ chối
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateBookingNeedsStatus(item.booking, 'confirmed')}
+                            className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-medium text-white transition hover:bg-emerald-700"
+                          >
+                            Xác nhận
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Main Content */}
       <main className="safe-bottom-padding flex-1 overflow-auto p-3 md:p-6">
@@ -1605,7 +1962,7 @@ export default function App() {
                   >
                     <option value="">-- Chọn phòng họp --</option>
                     {rooms.filter(r => {
-                      const isActive = r.status?.includes('hoạt động') || r.id === bRoomId;
+                      const isActive = isRoomActiveStatus(r.status) || r.id === bRoomId;
                       if (!isActive) return false;
                       if (bLocationFilter.length === 0) return true;
                       return bLocationFilter.some(loc => (r.building || '').includes(loc));
@@ -1889,6 +2246,12 @@ export default function App() {
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Người đặt</div>
                 <div className="mt-1 text-sm font-semibold text-gray-900">{selectedBookingDetails.userName}</div>
                 <div className="mt-1 text-sm text-gray-600">{selectedBookingDetails.userPhone}</div>
+                {selectedBookingHasNeeds && selectedBookingNeedsStatus !== 'confirmed' && (
+                  <div className="mt-3">{renderNeedsStatusTag(selectedBookingNeedsStatus)}</div>
+                )}
+                {selectedBookingNeedsStatus === 'rejected' && (
+                  <div className="mt-2 text-xs text-rose-600">Nhu cầu hậu cần đã bị admin từ chối, lịch đặt vẫn được giữ nguyên.</div>
+                )}
               </div>
 
               {(selectedBookingDetails.project || selectedBookingDetails.purpose || bookingDetailsNeedNames.length > 0 || selectedBookingDetails.repeatGroupId || typeof selectedBookingDetails.attendeeCount === 'number') && (
@@ -1948,6 +2311,34 @@ export default function App() {
 
               {canManageSelectedBooking && (
                 <>
+                  {isAdmin && selectedBookingHasNeeds && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateBookingNeedsStatus(selectedBookingDetails, 'rejected')}
+                        disabled={selectedBookingNeedsStatus === 'rejected'}
+                        className={`px-4 py-2 font-medium rounded-lg transition shadow-sm ${
+                          selectedBookingNeedsStatus === 'rejected'
+                            ? 'cursor-not-allowed bg-rose-100 text-rose-500'
+                            : 'bg-rose-600 text-white hover:bg-rose-700'
+                        }`}
+                      >
+                        Từ chối
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleUpdateBookingNeedsStatus(selectedBookingDetails, 'confirmed')}
+                        disabled={selectedBookingNeedsStatus === 'confirmed'}
+                        className={`px-4 py-2 font-medium rounded-lg transition shadow-sm ${
+                          selectedBookingNeedsStatus === 'confirmed'
+                            ? 'cursor-not-allowed bg-emerald-100 text-emerald-500'
+                            : 'bg-emerald-600 text-white hover:bg-emerald-700'
+                        }`}
+                      >
+                        Xác nhận
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => {
@@ -2035,7 +2426,7 @@ export default function App() {
                             {room.name}
                           </div>
                           <div className="text-xs text-gray-500 mt-1">Sức chứa: {room.capacity} | Vị trí: {room.location}</div>
-                          <div className={`text-xs mt-1 font-medium ${room.status?.includes('hoạt động') ? 'text-green-600' : 'text-red-500'}`}>{room.status}</div>
+                          <div className={`text-xs mt-1 font-medium ${isRoomActiveStatus(room.status) ? 'text-green-600' : 'text-red-500'}`}>{room.status}</div>
                         </div>
                         <div className="flex gap-2">
                           <button 

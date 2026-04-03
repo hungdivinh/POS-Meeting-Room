@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_URL || 'https://dat-phong-api.hungdivinh.workers.dev';
+const API_BASE =
+  import.meta.env.VITE_API_URL ||
+  (import.meta.env.DEV ? '' : 'https://dat-phong-api.hungdivinh.workers.dev');
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, {
@@ -25,12 +27,18 @@ export interface Room {
   floor?: string;
 }
 
+export type BookingNeedsStatus = 'pending' | 'confirmed' | 'rejected';
+
 export interface Booking {
   id: string;
   roomId: string;
   userName: string;
   userPhone: string;
   attendeeCount?: number | null;
+  needsStatus?: BookingNeedsStatus;
+  needsStatusUpdatedAt?: string | null;
+  needsConfirmed?: boolean;
+  needsConfirmedAt?: string | null;
   project: string;
   purpose: string;
   startTime: string;
@@ -68,10 +76,25 @@ export const roomsApi = {
 export const bookingsApi = {
   list: (startDate: string, endDate: string) =>
     request<Booking[]>(`/api/bookings?startDate=${startDate}&endDate=${endDate}`),
+  listNeedsNotifications: (statuses: BookingNeedsStatus[], userPhone?: string) =>
+    request<Booking[]>(
+      `/api/bookings/needs-notifications?statuses=${encodeURIComponent(statuses.join(','))}${
+        userPhone ? `&userPhone=${encodeURIComponent(userPhone)}` : ''
+      }`,
+    ),
+  listPendingNeeds: (userPhone?: string) =>
+    request<Booking[]>(`/api/bookings/pending-needs${userPhone ? `?userPhone=${encodeURIComponent(userPhone)}` : ''}`),
   create: (data: Omit<Booking, 'id'> | Omit<Booking, 'id'>[]) =>
     request<Booking | Booking[]>('/api/bookings', { method: 'POST', body: JSON.stringify(data) }),
   update: (id: string, data: Partial<Booking>) =>
     request<Booking>(`/api/bookings/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  updateNeedsStatus: (id: string, status: BookingNeedsStatus) =>
+    request<Booking>(`/api/bookings/${id}/needs-status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status }),
+    }),
+  confirmNeeds: (id: string) =>
+    request<Booking>(`/api/bookings/${id}/confirm-needs`, { method: 'PUT' }),
   delete: (id: string) => request<{ success: boolean }>(`/api/bookings/${id}`, { method: 'DELETE' }),
   deleteGroup: (id: string) => request<{ success: boolean; deletedCount: number }>(`/api/bookings/${id}?deleteGroup=true`, { method: 'DELETE' }),
 };

@@ -41,6 +41,10 @@ CREATE TABLE IF NOT EXISTS bookings (
   color TEXT DEFAULT '',
   need_ids TEXT DEFAULT '',
   attendee_count INTEGER,
+  needs_status TEXT NOT NULL DEFAULT 'confirmed',
+  needs_status_updated_at TEXT,
+  needs_confirmed INTEGER NOT NULL DEFAULT 1,
+  needs_confirmed_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
