@@ -28,16 +28,10 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
     }
 
     return {
-      enabled: 'Thiết bị này sẽ nhận thông báo khi admin từ chối nhu cầu hậu cần của bạn.',
-      disabled: 'Bật thông báo nền để biết ngay khi admin từ chối nhu cầu hậu cần.',
+      enabled: 'Thiết bị này sẽ nhận thông báo khi admin xác nhận hoặc từ chối nhu cầu hậu cần của bạn.',
+      disabled: 'Bật thông báo nền để biết ngay khi admin xác nhận hoặc từ chối nhu cầu hậu cần.',
     };
   }, [role]);
-  const userFacingRoleMessages = role === 'admin'
-    ? roleMessages
-    : {
-        enabled: 'Thiáº¿t bá»‹ nÃ y sáº½ nháº­n thÃ´ng bÃ¡o khi admin xÃ¡c nháº­n hoáº·c tá»« chá»‘i nhu cáº§u háº­u cáº§n cá»§a báº¡n.',
-        disabled: 'Báº­t thÃ´ng bÃ¡o ná»n Ä‘á»ƒ biáº¿t ngay khi admin xÃ¡c nháº­n hoáº·c tá»« chá»‘i nhu cáº§u háº­u cáº§n.',
-      };
 
   useEffect(() => {
     let cancelled = false;
@@ -91,7 +85,7 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       if (subscription) {
         await pushApi.subscribe(userPhone, subscription.toJSON());
         setStatus('enabled');
-        setMessage(userFacingRoleMessages.enabled);
+        setMessage(roleMessages.enabled);
         return;
       }
 
@@ -102,13 +96,13 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       }
 
       setStatus('disabled');
-      setMessage(userFacingRoleMessages.disabled);
+      setMessage(roleMessages.disabled);
     } catch (error) {
       console.error('Failed to refresh push notification status:', error);
       setStatus('error');
       setMessage('Không thể kiểm tra trạng thái thông báo nền lúc này.');
     }
-  }, [config, userFacingRoleMessages, userPhone]);
+  }, [config, roleMessages, userPhone]);
 
   useEffect(() => {
     void refreshStatus();
@@ -133,12 +127,12 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
       const subscription = await subscribeToPush(config.vapidPublicKey);
       await pushApi.subscribe(userPhone, subscription.toJSON());
       setStatus('enabled');
-      setMessage(userFacingRoleMessages.enabled);
+      setMessage(roleMessages.enabled);
     } finally {
       setBusy(false);
       void refreshStatus();
     }
-  }, [config, refreshStatus, userFacingRoleMessages, userPhone]);
+  }, [config, refreshStatus, roleMessages, userPhone]);
 
   const disable = useCallback(async (phoneOverride?: string) => {
     setBusy(true);
@@ -155,12 +149,12 @@ export function usePushNotifications(userPhone: string | undefined, role: PushDe
 
       await unsubscribeFromPush();
       setStatus('disabled');
-      setMessage(userFacingRoleMessages.disabled);
+      setMessage(roleMessages.disabled);
     } finally {
       setBusy(false);
       void refreshStatus();
     }
-  }, [refreshStatus, userFacingRoleMessages, userPhone]);
+  }, [refreshStatus, roleMessages, userPhone]);
 
   return {
     config,
