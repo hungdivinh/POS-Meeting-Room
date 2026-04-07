@@ -632,6 +632,7 @@ function mapBookingRow(r: any) {
     roomId: r.room_id,
     userName: r.user_name,
     userPhone: r.user_phone,
+    createdAt: r.created_at ?? null,
     attendeeCount: typeof r.attendee_count === 'number' ? r.attendee_count : null,
     needsStatus,
     needsStatusUpdatedAt: r.needs_status_updated_at ?? r.needs_confirmed_at ?? null,
@@ -937,6 +938,7 @@ export default {
           created.push({
             id,
             ...item,
+            createdAt: new Date().toISOString(),
             needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],
             attendeeCount,
             needsStatus,
@@ -967,7 +969,7 @@ export default {
 
         const session = env.DB.withSession('first-primary');
         const existingBooking = await session.prepare(
-          'SELECT id, need_ids, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at FROM bookings WHERE id = ?'
+          'SELECT id, need_ids, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at, created_at FROM bookings WHERE id = ?'
         ).bind(id).first<any>();
         if (!existingBooking) {
           return error('Booking not found', 404);
@@ -1062,6 +1064,7 @@ export default {
         const updatedResponse = {
           id,
           ...body,
+          createdAt: existingBooking.created_at ?? null,
           needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],
           attendeeCount,
           needsStatus,

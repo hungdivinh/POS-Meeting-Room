@@ -34,6 +34,7 @@ export interface Booking {
   roomId: string;
   userName: string;
   userPhone: string;
+  createdAt?: string | null;
   attendeeCount?: number | null;
   needsStatus?: BookingNeedsStatus;
   needsStatusUpdatedAt?: string | null;

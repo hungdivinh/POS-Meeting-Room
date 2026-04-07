@@ -114,6 +114,16 @@ function writeRoomsCache(rooms: Room[]): void {
   }
 }
 
+function parseApiDateTime(value?: string | null): Date | null {
+  if (!value) return null;
+
+  const normalized = value.includes('T') ? value : value.replace(' ', 'T');
+  const withTimezone = /(?:Z|[+-]\d{2}:\d{2})$/.test(normalized) ? normalized : `${normalized}Z`;
+  const parsed = new Date(withTimezone);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export default function App() {
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [rooms, setRooms] = useState<Room[]>(() => readRoomsCache());
@@ -207,6 +217,7 @@ export default function App() {
         .map(nid => needs.find(n => n.id === nid)?.name)
         .filter(Boolean) as string[]
     : [];
+  const bookingDetailsCreatedAt = parseApiDateTime(selectedBookingDetails?.createdAt);
   const bookingDetailsStart = selectedBookingDetails ? parseISO(selectedBookingDetails.startTime) : null;
   const bookingDetailsEnd = selectedBookingDetails ? parseISO(selectedBookingDetails.endTime) : null;
   const canManageSelectedBooking = selectedBookingDetails
@@ -2325,7 +2336,14 @@ export default function App() {
 
               <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
                 <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Người đặt</div>
-                <div className="mt-1 text-sm font-semibold text-gray-900">{selectedBookingDetails.userName}</div>
+                <div className="mt-1 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between sm:gap-3">
+                  <div className="text-sm font-semibold text-gray-900">{selectedBookingDetails.userName}</div>
+                  {bookingDetailsCreatedAt && (
+                    <div className="text-xs text-gray-500">
+                      Nhận đặt lúc: {format(bookingDetailsCreatedAt, 'HH:mm dd/MM/yyyy')}
+                    </div>
+                  )}
+                </div>
                 <div className="mt-1 text-sm text-gray-600">{selectedBookingDetails.userPhone}</div>
                 {selectedBookingHasNeeds && selectedBookingNeedsStatus !== 'confirmed' && (
                   <div className="mt-3">{renderNeedsStatusTag(selectedBookingNeedsStatus)}</div>
