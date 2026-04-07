@@ -41,6 +41,7 @@ function getConfiguredAdminPhones(env: Env): string[] {
 }
 
 const BOOKING_OVERLAP_ERROR = 'Khung giờ này đã có người đặt. Vui lòng chọn khung giờ khác.';
+const ROOM_INACTIVE_BOOKING_ERROR = 'Phòng họp này đang tạm ngưng hoặc cải hoán, chưa thể đặt lịch mới.';
 
 const DEFAULT_APP_NAME = 'Lich Phong Hop';
 const DEFAULT_APP_URL = 'https://pos-team.io.vn';
@@ -104,6 +105,41 @@ function parseAttendeeCount(input: unknown): { value: number | null; valid: bool
   }
 
   return { value: parsed, valid: true };
+}
+
+function normalizeRoomStatusText(status?: string | null): string {
+  if (!status) return '';
+
+  return status
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/Đ/g, 'D')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isRoomBookableStatus(status?: string | null): boolean {
+  const normalized = normalizeRoomStatusText(status);
+  if (!normalized) return true;
+
+  if (
+    normalized.includes('tam ngung') ||
+    normalized.includes('tam dung') ||
+    normalized.includes('ngung su dung') ||
+    normalized.includes('khong hoat dong') ||
+    normalized.includes('bao tri') ||
+    normalized.includes('hoan cai') ||
+    normalized.includes('cai hoan') ||
+    normalized.includes('cai tao') ||
+    normalized.includes('sua chua') ||
+    normalized.includes('renov')
+  ) {
+    return false;
+  }
+
+  return true;
 }
 
 function getBookingValidationError(input: BookingWriteInput, requireContact = false): string | null {
@@ -906,6 +942,15 @@ export default {
           if (validationError) {
             return error(validationError);
           }
+
+          const room = await session.prepare('SELECT id, status FROM rooms WHERE id = ?').bind(item.roomId).first<any>();
+          if (!room) {
+            return error('Phòng họp không tồn tại.', 404);
+          }
+
+          if (!isRoomBookableStatus(room.status)) {
+            return error(ROOM_INACTIVE_BOOKING_ERROR, 409);
+          }
         }
 
         for (const item of items) {
@@ -1008,6 +1053,15 @@ export default {
         ).bind(id).first<any>();
         if (!existingBooking) {
           return error('Booking not found', 404);
+        }
+
+        const targetRoom = await session.prepare('SELECT id, status FROM rooms WHERE id = ?').bind(body.roomId).first<any>();
+        if (!targetRoom) {
+          return error('Phòng họp không tồn tại.', 404);
+        }
+
+        if (body.roomId !== existingBooking.room_id && !isRoomBookableStatus(targetRoom.status)) {
+          return error(ROOM_INACTIVE_BOOKING_ERROR, 409);
         }
 
         const attendeeCount = parseAttendeeCount(body.attendeeCount).value;

@@ -46,7 +46,12 @@ function isRoomActiveStatus(status?: string): boolean {
     normalized.includes('tam dung') ||
     normalized.includes('ngung su dung') ||
     normalized.includes('khong hoat dong') ||
-    normalized.includes('bao tri')
+    normalized.includes('bao tri') ||
+    normalized.includes('hoan cai') ||
+    normalized.includes('cai hoan') ||
+    normalized.includes('cai tao') ||
+    normalized.includes('sua chua') ||
+    normalized.includes('renov')
   ) {
     return false;
   }
