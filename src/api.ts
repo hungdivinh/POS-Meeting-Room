@@ -33,6 +33,7 @@ export interface Booking {
   id: string;
   roomId: string;
   userName: string;
+  userDepartment?: string;
   userPhone: string;
   createdAt?: string | null;
   updatedAt?: string | null;

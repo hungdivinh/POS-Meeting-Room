@@ -7,6 +7,7 @@ import { usePushNotifications } from './usePushNotifications';
 
 interface UserProfile {
   name: string;
+  department: string;
   phone: string;
 }
 
@@ -21,8 +22,13 @@ interface BookingNotificationItem {
 const HOURS = Array.from({ length: 11 }, (_, i) => i + 8); // 8 AM to 6 PM
 const DAYS_OF_WEEK = [1, 2, 3, 4, 5, 6, 0]; // Monday to Sunday (0 is Sunday in date-fns)
 const DAY_NAMES = ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7', 'CN'];
+const DEPARTMENTS = ['ATCL', 'XLHH', 'XLCN', 'PTKD', 'TCKT', 'O&M', 'HCNS'];
 const ROOMS_CACHE_KEY = 'meetingRoomsCacheV1';
 const ROOMS_CACHE_TTL_MS = 5 * 60 * 1000;
+
+function formatBookingIdentity(name?: string, department?: string, phone?: string): string {
+  return [name?.trim(), department?.trim(), phone?.trim()].filter(Boolean).join('-');
+}
 
 function normalizeStatusText(status?: string): string {
   if (!status) return '';
@@ -159,11 +165,13 @@ export default function App() {
   
   // Profile Form
   const [profileName, setProfileName] = useState('');
+  const [profileDepartment, setProfileDepartment] = useState('');
   const [profilePhone, setProfilePhone] = useState('');
 
   // Booking Form
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [bBookerName, setBBookerName] = useState('');
+  const [bBookerDepartment, setBBookerDepartment] = useState('');
   const [bBookerPhone, setBBookerPhone] = useState('');
   const [bProject, setBProject] = useState('');
   const [bPurpose, setBPurpose] = useState('');
@@ -390,10 +398,10 @@ export default function App() {
     const storedProfile = localStorage.getItem('meetingUserProfile');
     if (storedProfile) {
       const parsed = JSON.parse(storedProfile);
-      if (parsed.phone) {
+      if (parsed.phone && parsed.department) {
         setUserProfile(parsed);
       } else {
-        // Old profile format (had email), force re-login
+        // Old profile format without department, force re-login
         localStorage.removeItem('meetingUserProfile');
         setIsProfileModalOpen(true);
       }
@@ -474,14 +482,14 @@ export default function App() {
 
   const handleSaveProfile = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!profileName || !profilePhone) return;
+    if (!profileName || !profileDepartment || !profilePhone) return;
     const isAdminLogin = profileName === 'admin-pos' && profilePhone === '6530042026';
     if (!isAdminLogin && (profilePhone.length < 10 || profilePhone.length > 11)) {
       alert('Số điện thoại phải có 10-11 số');
       return;
     }
 
-    const profile = { name: profileName, phone: profilePhone };
+    const profile = { name: profileName, department: profileDepartment, phone: profilePhone };
     localStorage.setItem('meetingUserProfile', JSON.stringify(profile));
     setUserProfile(profile);
     logsApi.create({ userName: profileName, userPhone: profilePhone, action: 'Đăng nhập' }).catch(() => {});
@@ -499,6 +507,7 @@ export default function App() {
     setIsProfileModalOpen(true);
     setIsNotificationPanelOpen(false);
     setProfileName('');
+    setProfileDepartment('');
     setProfilePhone('');
   };
 
@@ -583,10 +592,22 @@ export default function App() {
         return;
       }
 
+      const effectiveBookerDepartment = (
+        bBookerDepartment ||
+        editingBooking?.userDepartment ||
+        userProfile.department ||
+        ''
+      ).trim();
+
+      if (!effectiveBookerDepartment) {
+        alert('Vui lòng chọn phòng/ban cho người đặt.');
+        return;
+      }
+
       if (editingBooking) {
         const overlap = findOverlap(bRoomId, startIso, endIso, bDate, editingBooking.id);
         if (overlap) {
-          alert(`Khung giờ này đã có người đặt.\nLiên hệ: ${overlap.userName} - ${overlap.userPhone}`);
+          alert(`Khung giờ này đã có người đặt.\nLiên hệ: ${formatBookingIdentity(overlap.userName, overlap.userDepartment, overlap.userPhone)}`);
           return;
         }
 
@@ -601,6 +622,7 @@ export default function App() {
           needIds: selectedNeeds,
           color: isAdmin && bColor ? bColor : '',
           userName: bBookerName,
+          userDepartment: effectiveBookerDepartment,
           userPhone: bBookerPhone
         };
 
@@ -609,13 +631,14 @@ export default function App() {
         if (!isRepeat) {
           const overlap = findOverlap(bRoomId, startIso, endIso, bDate);
           if (overlap) {
-            alert(`Khung giờ này đã có người đặt.\nLiên hệ: ${overlap.userName} - ${overlap.userPhone}`);
+            alert(`Khung giờ này đã có người đặt.\nLiên hệ: ${formatBookingIdentity(overlap.userName, overlap.userDepartment, overlap.userPhone)}`);
             return;
           }
 
           const newBooking: any = {
             roomId: bRoomId,
             userName: bBookerName || userProfile.name,
+            userDepartment: effectiveBookerDepartment,
             userPhone: bBookerPhone || userProfile.phone,
             project: bProject,
             purpose: bPurpose,
@@ -673,6 +696,7 @@ export default function App() {
             const newBooking: any = {
               roomId: bRoomId,
               userName: userProfile.name,
+              userDepartment: effectiveBookerDepartment,
               userPhone: userProfile.phone,
               project: bProject,
               purpose: bPurpose,
@@ -798,6 +822,7 @@ export default function App() {
   const openBookingModalWithDefaults = (roomId?: string, date?: string, startHour?: number) => {
     setEditingBooking(null);
     setBBookerName(userProfile?.name || '');
+    setBBookerDepartment(userProfile?.department || '');
     setBBookerPhone(userProfile?.phone || '');
     if (roomId) setBRoomId(roomId);
     if (date) setBDate(date);
@@ -824,6 +849,7 @@ export default function App() {
   const openEditBookingModal = (booking: Booking) => {
     setEditingBooking(booking);
     setBBookerName(booking.userName);
+    setBBookerDepartment(booking.userDepartment || '');
     setBBookerPhone(booking.userPhone);
     setBRoomId(booking.roomId);
     setBDate(booking.date);
@@ -1084,6 +1110,7 @@ export default function App() {
                           ? { backgroundColor: colors[0] }
                           : { background: `linear-gradient(to right, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}%, ${c} ${((i + 1) / colors.length) * 100}%`).join(', ')})` };
                         const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+                        const bookingIdentity = formatBookingIdentity(booking.userName, booking.userDepartment, booking.userPhone);
 
                         return (
                           <article
@@ -1097,8 +1124,7 @@ export default function App() {
                                 <div className="text-sm font-semibold text-gray-900">
                                   {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
                                 </div>
-                                <div className="text-sm text-gray-800">{booking.userName}</div>
-                                <div className="text-xs text-gray-600">SĐT: {booking.userPhone}</div>
+                                <div className="mt-1 text-sm text-gray-800 break-words whitespace-normal leading-tight">{bookingIdentity}</div>
                                 {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-2">{renderNeedsStatusTag(needsStatus)}</div>}
                               </div>
 
@@ -1192,6 +1218,7 @@ export default function App() {
                       ? { backgroundColor: colors[0] }
                       : { background: `linear-gradient(to right, ${colors.map((c, i) => `${c} ${(i / colors.length) * 100}%, ${c} ${((i + 1) / colors.length) * 100}%`).join(', ')})` };
                     const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+                    const bookingIdentity = formatBookingIdentity(booking.userName, booking.userDepartment, booking.userPhone);
 
                     return (
                       <article
@@ -1206,7 +1233,7 @@ export default function App() {
                               {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
                             </div>
                             <div className="mt-1 text-sm text-gray-800">{room?.name || 'Phòng chưa xác định'}</div>
-                            <div className="text-xs text-gray-600">{booking.userName} - {booking.userPhone}</div>
+                            <div className="text-xs text-gray-600 break-words whitespace-normal leading-tight">{bookingIdentity}</div>
                             {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-2">{renderNeedsStatusTag(needsStatus)}</div>}
                           </div>
 
@@ -1344,29 +1371,31 @@ export default function App() {
                         ? { backgroundColor: colors[0] }
                         : { background: `linear-gradient(to right, ${colors.map((c, i) => `${c} ${(i/colors.length)*100}%, ${c} ${((i+1)/colors.length)*100}%`).join(', ')})` };
                       const needNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+                      const bookingIdentity = formatBookingIdentity(booking.userName, booking.userDepartment, booking.userPhone);
 
                       return (
                         <div
                           key={booking.id}
                           onClick={() => openBookingDetailsModal(booking)}
-                          className="absolute top-1 bottom-1 rounded-md shadow-sm border border-gray-200 p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden cursor-pointer hover:shadow-md"
+                          className="absolute top-1 bottom-1 min-w-0 max-w-full rounded-md shadow-sm border border-gray-200 p-1.5 flex flex-col justify-start group/booking z-20 overflow-hidden cursor-pointer hover:shadow-md"
                           style={{
                             left: `${leftPercent}%`,
                             width: `calc(${widthPercent}% - 4px)`,
+                            maxWidth: `calc(100% - ${leftPercent}% - 4px)`,
                             ...bgStyle
                           }}
-                          title={`${format(bStart, 'HH:mm')} - ${format(bEnd, 'HH:mm')}: ${booking.userName} (${booking.userPhone})${booking.project ? '\nDA: ' + booking.project : ''}${booking.purpose ? '\n' + booking.purpose : ''}${needNames.length ? '\nNhu cầu: ' + needNames.join(', ') : ''}`}
+                          title={`${format(bStart, 'HH:mm')} - ${format(bEnd, 'HH:mm')}: ${bookingIdentity}${booking.project ? '\nDA: ' + booking.project : ''}${booking.purpose ? '\n' + booking.purpose : ''}${needNames.length ? '\nNhu cầu: ' + needNames.join(', ') : ''}`}
                         >
-                          <div className="text-xs font-semibold text-gray-900 truncate">
-                            {format(bStart, 'HH:mm')}-{format(bEnd, 'HH:mm')}: {booking.userName}
+                          <div className="min-w-0 text-[11px] font-semibold leading-tight text-gray-900 whitespace-nowrap">
+                            {format(bStart, 'HH:mm')}-{format(bEnd, 'HH:mm')}
                           </div>
-                          <div className="text-xs text-gray-600 truncate">
-                            SĐT: {booking.userPhone}
+                          <div className="min-w-0 text-[11px] text-gray-700 break-words whitespace-normal leading-tight">
+                            {bookingIdentity}
                           </div>
-                          {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1">{renderNeedsStatusTag(needsStatus, true)}</div>}
-                          {booking.project && <div className="text-xs text-gray-700 truncate">DA: {booking.project}</div>}
-                          {booking.purpose && <div className="text-xs text-gray-600 truncate">{booking.purpose}</div>}
-                          {needNames.length > 0 && <div className="text-xs text-gray-800 truncate font-medium">NC: {needNames.join(', ')}</div>}
+                          {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1 min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
+                          {booking.project && <div className="min-w-0 text-[11px] text-gray-700 break-words whitespace-normal leading-tight">DA: {booking.project}</div>}
+                          {booking.purpose && <div className="min-w-0 text-[11px] text-gray-600 break-words whitespace-normal leading-tight">{booking.purpose}</div>}
+                          {needNames.length > 0 && <div className="min-w-0 text-[11px] text-gray-800 break-words whitespace-normal leading-tight font-medium">NC: {needNames.join(', ')}</div>}
                           
                           {canEdit && (
                             <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
@@ -1485,21 +1514,23 @@ export default function App() {
                                   ? { backgroundColor: wColors[0] }
                                   : { background: `linear-gradient(to right, ${wColors.map((c, i) => `${c} ${(i/wColors.length)*100}%, ${c} ${((i+1)/wColors.length)*100}%`).join(', ')})` };
                                 const wNeedNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
+                                const bookingIdentity = formatBookingIdentity(booking.userName, booking.userDepartment, booking.userPhone);
 
                                 return (
                                   <div
                                     key={booking.id}
                                     onClick={() => openBookingDetailsModal(booking)}
-                                    className="mb-1 p-1.5 border border-gray-200 rounded text-xs relative group/booking cursor-pointer hover:shadow-md"
+                                    className="mb-1 w-full max-w-full min-w-0 overflow-hidden p-1.5 border border-gray-200 rounded text-xs relative group/booking cursor-pointer hover:shadow-md"
                                     style={wBgStyle}
                                   >
-                                    <div className="font-semibold text-gray-900 break-words whitespace-normal">
-                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
+                                    <div className="font-semibold text-gray-900 break-words whitespace-normal leading-tight">
+                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
                                     </div>
-                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1">{renderNeedsStatusTag(needsStatus, true)}</div>}
-                                    {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
-                                    {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
-                                    {wNeedNames.length > 0 && <div className="text-gray-800 font-medium">NC: {wNeedNames.join(', ')}</div>}
+                                    <div className="mt-0.5 text-gray-700 break-words whitespace-normal leading-tight">{bookingIdentity}</div>
+                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1 min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
+                                    {booking.project && <div className="text-gray-700 break-words whitespace-normal leading-tight">DA: {booking.project}</div>}
+                                    {booking.purpose && <div className="text-gray-600 break-words whitespace-normal leading-tight">{booking.purpose}</div>}
+                                    {wNeedNames.length > 0 && <div className="text-gray-800 font-medium break-words whitespace-normal leading-tight">NC: {wNeedNames.join(', ')}</div>}
                                     {canEdit && (
                                       <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70`}>
                                         <button 
@@ -1559,20 +1590,22 @@ export default function App() {
                                 const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
                                 const needsStatus = resolveBookingNeedsStatus(booking);
+                                const bookingIdentity = formatBookingIdentity(booking.userName, booking.userDepartment, booking.userPhone);
                                 
                                 return (
                                   <div 
                                     key={booking.id} 
                                     onClick={() => openBookingDetailsModal(booking)}
-                                    className={`mb-1 p-1.5 border rounded text-xs relative group/booking cursor-pointer hover:shadow-md ${!booking.color ? 'bg-yellow-100 border-yellow-300 hover:border-yellow-400' : ''}`}
+                                    className={`mb-1 w-full max-w-full min-w-0 overflow-hidden p-1.5 border rounded text-xs relative group/booking cursor-pointer hover:shadow-md ${!booking.color ? 'bg-yellow-100 border-yellow-300 hover:border-yellow-400' : ''}`}
                                     style={booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {}}
                                   >
-                                    <div className="font-semibold text-gray-900 break-words whitespace-normal">
-                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}: {booking.userName} ({booking.userPhone})
+                                    <div className="font-semibold text-gray-900 break-words whitespace-normal leading-tight">
+                                      {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
                                     </div>
-                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1">{renderNeedsStatusTag(needsStatus, true)}</div>}
-                                    {booking.project && <div className="text-gray-700 break-words whitespace-normal">DA: {booking.project}</div>}
-                                    {booking.purpose && <div className="text-gray-600 break-words whitespace-normal">{booking.purpose}</div>}
+                                    <div className="mt-0.5 text-gray-700 break-words whitespace-normal leading-tight">{bookingIdentity}</div>
+                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1 min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
+                                    {booking.project && <div className="text-gray-700 break-words whitespace-normal leading-tight">DA: {booking.project}</div>}
+                                    {booking.purpose && <div className="text-gray-600 break-words whitespace-normal leading-tight">{booking.purpose}</div>}
                                     {canEdit && (
                                       <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-100/90' : 'bg-white/50'}`}>
                                         <button 
@@ -1952,6 +1985,22 @@ export default function App() {
                   />
                 </div>
                 <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Phòng</label>
+                  <select
+                    required
+                    value={profileDepartment}
+                    onChange={(e) => setProfileDepartment(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none transition bg-white"
+                  >
+                    <option value="">Chọn phòng</option>
+                    {DEPARTMENTS.map((department) => (
+                      <option key={department} value={department}>
+                        {department}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
                   <input
                     type="tel"
@@ -1996,10 +2045,21 @@ export default function App() {
             <form onSubmit={handleSaveBooking}>
               <div className="space-y-4">
                 {/* User Info */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Người đặt</label>
                     <input type="text" value={bBookerName} onChange={(e) => setBBookerName(e.target.value)} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none' : 'border-gray-200 bg-gray-50 text-gray-500'}`} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phòng</label>
+                    <select value={bBookerDepartment} onChange={(e) => setBBookerDepartment(e.target.value)} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
+                      <option value="">Chọn phòng</option>
+                      {DEPARTMENTS.map((department) => (
+                        <option key={department} value={department}>
+                          {department}
+                        </option>
+                      ))}
+                    </select>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
@@ -2353,6 +2413,9 @@ export default function App() {
                     </div>
                   </div>
                 </div>
+                {selectedBookingDetails.userDepartment && (
+                  <div className="mt-1 text-sm text-gray-600">Phòng: {selectedBookingDetails.userDepartment}</div>
+                )}
                 <div className="mt-1 text-sm text-gray-600">{selectedBookingDetails.userPhone}</div>
                 {selectedBookingHasNeeds && selectedBookingNeedsStatus !== 'confirmed' && (
                   <div className="mt-3">{renderNeedsStatusTag(selectedBookingNeedsStatus)}</div>

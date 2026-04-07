@@ -79,6 +79,7 @@ interface BookingWriteInput {
   startTime?: unknown;
   endTime?: unknown;
   userName?: unknown;
+  userDepartment?: unknown;
   userPhone?: unknown;
   attendeeCount?: unknown;
   needsStatus?: unknown;
@@ -105,6 +106,10 @@ function parseAttendeeCount(input: unknown): { value: number | null; valid: bool
   }
 
   return { value: parsed, valid: true };
+}
+
+function normalizeDepartment(input: unknown): string {
+  return typeof input === 'string' ? input.trim() : '';
 }
 
 function normalizeRoomStatusText(status?: string | null): string {
@@ -166,6 +171,10 @@ function getBookingValidationError(input: BookingWriteInput, requireContact = fa
   if (requireContact) {
     if (typeof input.userName !== 'string' || !input.userName.trim()) {
       return 'Thiếu tên người đặt.';
+    }
+
+    if (typeof input.userDepartment !== 'string' || !input.userDepartment.trim()) {
+      return 'Thiếu phòng/ban người đặt.';
     }
 
     if (typeof input.userPhone !== 'string' || !input.userPhone.trim()) {
@@ -479,10 +488,22 @@ async function ensureBookingUpdatedAtColumn(db: D1Database): Promise<void> {
   }
 }
 
+async function ensureBookingUserDepartmentColumn(db: D1Database): Promise<void> {
+  try {
+    await db.prepare("ALTER TABLE bookings ADD COLUMN user_department TEXT DEFAULT ''").run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+    if (!message.includes('duplicate column name') && !message.includes('already exists')) {
+      throw err;
+    }
+  }
+}
+
 async function ensureBookingSchema(db: D1Database): Promise<void> {
   await ensureBookingAttendeeCountColumn(db);
   await ensureBookingNeedsConfirmationColumns(db);
   await ensureBookingUpdatedAtColumn(db);
+  await ensureBookingUserDepartmentColumn(db);
 }
 
 async function ensurePushSubscriptionSchema(db: D1Database): Promise<void> {
@@ -696,6 +717,7 @@ function mapBookingRow(r: any) {
     id: r.id,
     roomId: r.room_id,
     userName: r.user_name,
+    userDepartment: r.user_department ?? '',
     userPhone: r.user_phone,
     createdAt: r.created_at ?? null,
     updatedAt: r.updated_at ?? null,
@@ -964,8 +986,8 @@ export default {
           } = getNeedsStatusPayload(item.needIds, item.needsStatus, item.needsConfirmed);
           const id = crypto.randomUUID().replace(/-/g, '');
           const result = await session.prepare(
-            `INSERT INTO bookings (id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids, attendee_count, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at)
-             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+            `INSERT INTO bookings (id, room_id, user_name, user_department, user_phone, user_email, project, purpose, start_time, end_time, date, repeat_group_id, color, need_ids, attendee_count, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at)
+             SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
              WHERE NOT EXISTS (
                SELECT 1
                FROM bookings
@@ -978,6 +1000,7 @@ export default {
             id,
             item.roomId,
             item.userName,
+            normalizeDepartment(item.userDepartment),
             item.userPhone,
             item.userPhone,
             item.project ?? '',
@@ -1013,6 +1036,7 @@ export default {
           created.push({
             id,
             ...item,
+            userDepartment: normalizeDepartment(item.userDepartment),
             createdAt: new Date().toISOString(),
             updatedAt: null,
             needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],
@@ -1045,7 +1069,7 @@ export default {
 
         const session = env.DB.withSession('first-primary');
         const existingBooking = await session.prepare(
-          `SELECT id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, color,
+          `SELECT id, room_id, user_name, user_department, user_phone, user_email, project, purpose, start_time, end_time, date, color,
                   need_ids, attendee_count, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at,
                   created_at, updated_at
            FROM bookings
@@ -1084,6 +1108,7 @@ export default {
           }
         );
         const nextUserName = body.userName ?? existingBooking.user_name;
+        const nextUserDepartment = normalizeDepartment(body.userDepartment ?? existingBooking.user_department);
         const nextUserPhone = body.userPhone ?? existingBooking.user_phone;
         const nextUserEmail = body.userPhone ?? existingBooking.user_email;
         const previousAttendeeCount =
@@ -1103,12 +1128,13 @@ export default {
           || Number(existingBooking.needs_confirmed ?? 0) !== needsConfirmed
           || (existingBooking.needs_confirmed_at ?? null) !== (needsConfirmedAt ?? null)
           || (existingBooking.user_name ?? '') !== nextUserName
+          || (existingBooking.user_department ?? '') !== nextUserDepartment
           || (existingBooking.user_phone ?? '') !== nextUserPhone
           || (existingBooking.user_email ?? '') !== nextUserEmail;
         const updatedAt = hasBookingChanged ? new Date().toISOString() : (existingBooking.updated_at ?? null);
         const result = await session.prepare(
           `UPDATE bookings
-           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, attendee_count = ?, needs_status = ?, needs_status_updated_at = ?, needs_confirmed = ?, needs_confirmed_at = ?, updated_at = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
+           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, attendee_count = ?, needs_status = ?, needs_status_updated_at = ?, needs_confirmed = ?, needs_confirmed_at = ?, updated_at = ?, user_name = COALESCE(?, user_name), user_department = COALESCE(?, user_department), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
            WHERE id = ?
              AND NOT EXISTS (
                SELECT 1
@@ -1135,6 +1161,7 @@ export default {
           needsConfirmedAt,
           updatedAt,
           body.userName ?? null,
+          body.userDepartment ?? null,
           body.userPhone ?? null,
           body.userPhone ?? null,
           id,
@@ -1177,6 +1204,7 @@ export default {
         const updatedResponse = {
           id,
           ...body,
+          userDepartment: nextUserDepartment,
           createdAt: existingBooking.created_at ?? null,
           updatedAt,
           needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],

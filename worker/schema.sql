@@ -40,6 +40,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   id TEXT PRIMARY KEY DEFAULT (lower(hex(randomblob(16)))),
   room_id TEXT NOT NULL,
   user_name TEXT NOT NULL,
+  user_department TEXT DEFAULT '',
   user_phone TEXT NOT NULL,
   user_email TEXT DEFAULT '',
   project TEXT DEFAULT '',
