@@ -84,7 +84,17 @@ function resolveBookingNeedsStatus(
     return booking.needsStatus;
   }
 
-  return booking?.needsConfirmed === false ? 'pending' : 'confirmed';
+  const confirmedFlag = booking?.needsConfirmed as boolean | number | string | null | undefined;
+
+  if (confirmedFlag === false || confirmedFlag === 0 || confirmedFlag === '0' || confirmedFlag === 'false') {
+    return 'pending';
+  }
+
+  if (confirmedFlag === true || confirmedFlag === 1 || confirmedFlag === '1' || confirmedFlag === 'true') {
+    return 'confirmed';
+  }
+
+  return 'pending';
 }
 
 function readRoomsCache(): Room[] {
@@ -171,7 +181,6 @@ export default function App() {
   // Booking Form
   const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
   const [bBookerName, setBBookerName] = useState('');
-  const [bBookerDepartment, setBBookerDepartment] = useState('');
   const [bBookerPhone, setBBookerPhone] = useState('');
   const [bProject, setBProject] = useState('');
   const [bPurpose, setBPurpose] = useState('');
@@ -234,6 +243,14 @@ export default function App() {
   const bookingDetailsUpdatedAt = parseApiDateTime(selectedBookingDetails?.updatedAt);
   const bookingDetailsStart = selectedBookingDetails ? parseISO(selectedBookingDetails.startTime) : null;
   const bookingDetailsEnd = selectedBookingDetails ? parseISO(selectedBookingDetails.endTime) : null;
+  const bookingFormDepartment = useMemo(() => {
+    const profileDepartmentValue = userProfile?.department?.trim() || '';
+    const existingDepartment = editingBooking?.userDepartment?.trim() || '';
+
+    return isAdmin
+      ? (existingDepartment || profileDepartmentValue)
+      : (profileDepartmentValue || existingDepartment);
+  }, [editingBooking?.userDepartment, isAdmin, userProfile?.department]);
   const canManageSelectedBooking = selectedBookingDetails
     ? selectedBookingDetails.userPhone === userProfile?.phone || isAdmin
     : false;
@@ -592,15 +609,13 @@ export default function App() {
         return;
       }
 
-      const effectiveBookerDepartment = (
-        bBookerDepartment ||
-        editingBooking?.userDepartment ||
-        userProfile.department ||
-        ''
-      ).trim();
-
+      const effectiveBookerDepartment = bookingFormDepartment;
       if (!effectiveBookerDepartment) {
-        alert('Vui lòng chọn phòng/ban cho người đặt.');
+        setProfileName(userProfile.name);
+        setProfileDepartment(userProfile.department || '');
+        setProfilePhone(userProfile.phone);
+        setIsProfileModalOpen(true);
+        alert('Vui lòng cập nhật phòng/ban trong thông tin đăng nhập trước khi đặt phòng.');
         return;
       }
 
@@ -822,7 +837,6 @@ export default function App() {
   const openBookingModalWithDefaults = (roomId?: string, date?: string, startHour?: number) => {
     setEditingBooking(null);
     setBBookerName(userProfile?.name || '');
-    setBBookerDepartment(userProfile?.department || '');
     setBBookerPhone(userProfile?.phone || '');
     if (roomId) setBRoomId(roomId);
     if (date) setBDate(date);
@@ -849,7 +863,6 @@ export default function App() {
   const openEditBookingModal = (booking: Booking) => {
     setEditingBooking(booking);
     setBBookerName(booking.userName);
-    setBBookerDepartment(booking.userDepartment || '');
     setBBookerPhone(booking.userPhone);
     setBRoomId(booking.roomId);
     setBDate(booking.date);
@@ -969,7 +982,7 @@ export default function App() {
     if (status === 'confirmed') return null;
     const classes = status === 'rejected' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700';
     return (
-      <span className={`inline-flex rounded-full ${classes} ${compact ? 'px-2 py-1 text-[10px]' : 'px-2.5 py-1 text-xs'} font-semibold`}>
+      <span className={`inline-flex max-w-full rounded-full ${classes} ${compact ? 'px-1.5 py-0.5 text-[9px] leading-tight text-center' : 'px-2.5 py-1 text-xs'} font-semibold`}>
         {status === 'rejected' ? 'Nhu cầu bị từ chối' : 'Chờ admin xác nhận'}
       </span>
     );
@@ -1392,7 +1405,7 @@ export default function App() {
                           <div className="min-w-0 text-[11px] text-gray-700 break-words whitespace-normal leading-tight">
                             {bookingIdentity}
                           </div>
-                          {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1 min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
+                          {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-px min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
                           {booking.project && <div className="min-w-0 text-[11px] text-gray-700 break-words whitespace-normal leading-tight">DA: {booking.project}</div>}
                           {booking.purpose && <div className="min-w-0 text-[11px] text-gray-600 break-words whitespace-normal leading-tight">{booking.purpose}</div>}
                           {needNames.length > 0 && <div className="min-w-0 text-[11px] text-gray-800 break-words whitespace-normal leading-tight font-medium">NC: {needNames.join(', ')}</div>}
@@ -1527,7 +1540,7 @@ export default function App() {
                                       {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
                                     </div>
                                     <div className="mt-0.5 text-gray-700 break-words whitespace-normal leading-tight">{bookingIdentity}</div>
-                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1 min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
+                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-px min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal leading-tight">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal leading-tight">{booking.purpose}</div>}
                                     {wNeedNames.length > 0 && <div className="text-gray-800 font-medium break-words whitespace-normal leading-tight">NC: {wNeedNames.join(', ')}</div>}
@@ -1590,24 +1603,30 @@ export default function App() {
                                 const isOwner = booking.userPhone === userProfile?.phone;
                                 const canEdit = isOwner || isAdmin;
                                 const needsStatus = resolveBookingNeedsStatus(booking);
+                                const wColors = getBookingColors(booking);
+                                const wBgStyle = wColors.length === 1
+                                  ? { backgroundColor: wColors[0] }
+                                  : { background: `linear-gradient(to right, ${wColors.map((c, i) => `${c} ${(i/wColors.length)*100}%, ${c} ${((i+1)/wColors.length)*100}%`).join(', ')})` };
+                                const wNeedNames = (booking.needIds || []).map(nid => needs.find(n => n.id === nid)?.name).filter(Boolean);
                                 const bookingIdentity = formatBookingIdentity(booking.userName, booking.userDepartment, booking.userPhone);
                                 
                                 return (
                                   <div 
                                     key={booking.id} 
                                     onClick={() => openBookingDetailsModal(booking)}
-                                    className={`mb-1 w-full max-w-full min-w-0 overflow-hidden p-1.5 border rounded text-xs relative group/booking cursor-pointer hover:shadow-md ${!booking.color ? 'bg-yellow-100 border-yellow-300 hover:border-yellow-400' : ''}`}
-                                    style={booking.color ? { backgroundColor: booking.color, borderColor: 'rgba(0,0,0,0.1)' } : {}}
+                                    className="mb-1 w-full max-w-full min-w-0 overflow-hidden p-1.5 border border-gray-200 rounded text-xs relative group/booking cursor-pointer hover:shadow-md"
+                                    style={wBgStyle}
                                   >
                                     <div className="font-semibold text-gray-900 break-words whitespace-normal leading-tight">
                                       {format(bStart, 'HH:mm')} - {format(bEnd, 'HH:mm')}
                                     </div>
                                     <div className="mt-0.5 text-gray-700 break-words whitespace-normal leading-tight">{bookingIdentity}</div>
-                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-1 min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
+                                    {hasBookingNeeds(booking) && needsStatus !== 'confirmed' && <div className="mt-px min-w-0">{renderNeedsStatusTag(needsStatus, true)}</div>}
                                     {booking.project && <div className="text-gray-700 break-words whitespace-normal leading-tight">DA: {booking.project}</div>}
                                     {booking.purpose && <div className="text-gray-600 break-words whitespace-normal leading-tight">{booking.purpose}</div>}
+                                    {wNeedNames.length > 0 && <div className="text-gray-800 font-medium break-words whitespace-normal leading-tight">NC: {wNeedNames.join(', ')}</div>}
                                     {canEdit && (
-                                      <div className={`absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded ${!booking.color ? 'bg-yellow-100/90' : 'bg-white/50'}`}>
+                                      <div className="absolute top-1 right-1 flex gap-1 opacity-100 md:opacity-0 md:group-hover/booking:opacity-100 transition-all p-0.5 rounded bg-white/70">
                                         <button 
                                           type="button"
                                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); openEditBookingModal(booking); }}
@@ -2051,15 +2070,9 @@ export default function App() {
                     <input type="text" value={bBookerName} onChange={(e) => setBBookerName(e.target.value)} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none' : 'border-gray-200 bg-gray-50 text-gray-500'}`} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Phòng</label>
-                    <select value={bBookerDepartment} onChange={(e) => setBBookerDepartment(e.target.value)} disabled={!isAdmin} className={`w-full border rounded-lg px-3 py-2 ${isAdmin ? 'border-gray-300 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none bg-white' : 'border-gray-200 bg-gray-50 text-gray-500'}`}>
-                      <option value="">Chọn phòng</option>
-                      {DEPARTMENTS.map((department) => (
-                        <option key={department} value={department}>
-                          {department}
-                        </option>
-                      ))}
-                    </select>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phòng/ban</label>
+                    <input type="text" value={bookingFormDepartment} readOnly className="w-full border border-gray-200 bg-gray-50 text-gray-500 rounded-lg px-3 py-2" />
+                    <p className="mt-1 text-xs text-gray-400">Tự động lấy theo thông tin đăng nhập.</p>
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Số điện thoại</label>
