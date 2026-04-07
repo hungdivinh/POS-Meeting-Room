@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS bookings (
   needs_confirmed INTEGER NOT NULL DEFAULT 1,
   needs_confirmed_at TEXT,
   created_at TEXT DEFAULT (datetime('now')),
+  updated_at TEXT,
   FOREIGN KEY (room_id) REFERENCES rooms(id) ON DELETE CASCADE
 );
 

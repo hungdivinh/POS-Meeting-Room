@@ -35,6 +35,7 @@ export interface Booking {
   userName: string;
   userPhone: string;
   createdAt?: string | null;
+  updatedAt?: string | null;
   attendeeCount?: number | null;
   needsStatus?: BookingNeedsStatus;
   needsStatusUpdatedAt?: string | null;

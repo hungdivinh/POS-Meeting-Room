@@ -222,6 +222,23 @@ function getPushAdminContact(env: Env): string {
   return DEFAULT_APP_URL;
 }
 
+function getWebPushTopic(payload: PushNotificationPayload): string {
+  const kindPrefix =
+    payload.kind === 'admin-pending'
+      ? 'ap'
+      : payload.kind === 'user-confirmed'
+        ? 'uc'
+        : payload.kind === 'user-rejected'
+          ? 'ur'
+          : 'push';
+  const bookingToken = String(payload.bookingId || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, '')
+    .slice(0, 24);
+
+  return bookingToken ? `${kindPrefix}-${bookingToken}` : kindPrefix;
+}
+
 function getAppBaseUrl(request: Request, env: Env): string {
   if (typeof env.APP_BASE_URL === 'string' && env.APP_BASE_URL.trim()) {
     return env.APP_BASE_URL.trim().replace(/\/$/, '');
@@ -415,9 +432,21 @@ async function ensureBookingNeedsConfirmationColumns(db: D1Database): Promise<vo
   ).run();
 }
 
+async function ensureBookingUpdatedAtColumn(db: D1Database): Promise<void> {
+  try {
+    await db.prepare('ALTER TABLE bookings ADD COLUMN updated_at TEXT').run();
+  } catch (err) {
+    const message = err instanceof Error ? err.message.toLowerCase() : String(err).toLowerCase();
+    if (!message.includes('duplicate column name') && !message.includes('already exists')) {
+      throw err;
+    }
+  }
+}
+
 async function ensureBookingSchema(db: D1Database): Promise<void> {
   await ensureBookingAttendeeCountColumn(db);
   await ensureBookingNeedsConfirmationColumns(db);
+  await ensureBookingUpdatedAtColumn(db);
 }
 
 async function ensurePushSubscriptionSchema(db: D1Database): Promise<void> {
@@ -526,7 +555,7 @@ async function sendPushNotification(
       options: {
         ttl: 3600,
         urgency: 'high',
-        topic: payload.tag,
+        topic: getWebPushTopic(payload),
       },
     },
   });
@@ -543,7 +572,7 @@ async function sendPushNotification(
   }
 
   if (!response.ok) {
-    throw new Error(`Push delivery failed with status ${response.status}`);
+    throw new Error(`Push delivery failed with status ${response.status}: ${await response.text()}`);
   }
 }
 
@@ -633,6 +662,7 @@ function mapBookingRow(r: any) {
     userName: r.user_name,
     userPhone: r.user_phone,
     createdAt: r.created_at ?? null,
+    updatedAt: r.updated_at ?? null,
     attendeeCount: typeof r.attendee_count === 'number' ? r.attendee_count : null,
     needsStatus,
     needsStatusUpdatedAt: r.needs_status_updated_at ?? r.needs_confirmed_at ?? null,
@@ -939,6 +969,7 @@ export default {
             id,
             ...item,
             createdAt: new Date().toISOString(),
+            updatedAt: null,
             needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],
             attendeeCount,
             needsStatus,
@@ -969,7 +1000,11 @@ export default {
 
         const session = env.DB.withSession('first-primary');
         const existingBooking = await session.prepare(
-          'SELECT id, need_ids, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at, created_at FROM bookings WHERE id = ?'
+          `SELECT id, room_id, user_name, user_phone, user_email, project, purpose, start_time, end_time, date, color,
+                  need_ids, attendee_count, needs_status, needs_status_updated_at, needs_confirmed, needs_confirmed_at,
+                  created_at, updated_at
+           FROM bookings
+           WHERE id = ?`
         ).bind(id).first<any>();
         if (!existingBooking) {
           return error('Booking not found', 404);
@@ -994,9 +1029,32 @@ export default {
             needsConfirmedAt: existingBooking.needs_confirmed_at,
           }
         );
+        const nextUserName = body.userName ?? existingBooking.user_name;
+        const nextUserPhone = body.userPhone ?? existingBooking.user_phone;
+        const nextUserEmail = body.userPhone ?? existingBooking.user_email;
+        const previousAttendeeCount =
+          typeof existingBooking.attendee_count === 'number' ? existingBooking.attendee_count : null;
+        const hasBookingChanged =
+          existingBooking.room_id !== body.roomId
+          || (existingBooking.project ?? '') !== (body.project ?? '')
+          || (existingBooking.purpose ?? '') !== (body.purpose ?? '')
+          || existingBooking.start_time !== body.startTime
+          || existingBooking.end_time !== body.endTime
+          || existingBooking.date !== body.date
+          || (existingBooking.color ?? '') !== (body.color ?? '')
+          || (existingBooking.need_ids ?? '') !== serializedNeedIds
+          || previousAttendeeCount !== attendeeCount
+          || existingBooking.needs_status !== needsStatus
+          || (existingBooking.needs_status_updated_at ?? null) !== (needsStatusUpdatedAt ?? null)
+          || Number(existingBooking.needs_confirmed ?? 0) !== needsConfirmed
+          || (existingBooking.needs_confirmed_at ?? null) !== (needsConfirmedAt ?? null)
+          || (existingBooking.user_name ?? '') !== nextUserName
+          || (existingBooking.user_phone ?? '') !== nextUserPhone
+          || (existingBooking.user_email ?? '') !== nextUserEmail;
+        const updatedAt = hasBookingChanged ? new Date().toISOString() : (existingBooking.updated_at ?? null);
         const result = await session.prepare(
           `UPDATE bookings
-           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, attendee_count = ?, needs_status = ?, needs_status_updated_at = ?, needs_confirmed = ?, needs_confirmed_at = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
+           SET room_id = ?, project = ?, purpose = ?, start_time = ?, end_time = ?, date = ?, color = ?, need_ids = ?, attendee_count = ?, needs_status = ?, needs_status_updated_at = ?, needs_confirmed = ?, needs_confirmed_at = ?, updated_at = ?, user_name = COALESCE(?, user_name), user_phone = COALESCE(?, user_phone), user_email = COALESCE(?, user_email)
            WHERE id = ?
              AND NOT EXISTS (
                SELECT 1
@@ -1021,6 +1079,7 @@ export default {
           needsStatusUpdatedAt,
           needsConfirmed,
           needsConfirmedAt,
+          updatedAt,
           body.userName ?? null,
           body.userPhone ?? null,
           body.userPhone ?? null,
@@ -1065,6 +1124,7 @@ export default {
           id,
           ...body,
           createdAt: existingBooking.created_at ?? null,
+          updatedAt,
           needIds: serializedNeedIds ? serializedNeedIds.split(',').filter(Boolean) : [],
           attendeeCount,
           needsStatus,
