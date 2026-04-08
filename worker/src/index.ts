@@ -73,6 +73,13 @@ interface PushNotificationPayload {
   bookingId: string;
 }
 
+interface NotificationBookingWindow {
+  date: string;
+  startTime: string;
+  endTime: string;
+  attendeeCount?: number | null;
+}
+
 interface BookingWriteInput {
   roomId?: unknown;
   date?: unknown;
@@ -106,6 +113,24 @@ function parseAttendeeCount(input: unknown): { value: number | null; valid: bool
   }
 
   return { value: parsed, valid: true };
+}
+
+function formatNotificationDate(date: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date.trim());
+  if (!match) {
+    return date;
+  }
+
+  return `${match[3]}/${match[2]}`;
+}
+
+function formatNotificationTimeRange(booking: Pick<NotificationBookingWindow, 'startTime' | 'endTime'>): string {
+  return `${booking.startTime.slice(11, 16)} - ${booking.endTime.slice(11, 16)}`;
+}
+
+function formatNeedsSummary(needNames: string[], attendeeCount?: number | null): string {
+  const attendeeText = typeof attendeeCount === 'number' ? ` S\u1ed1 ng\u01b0\u1eddi: ${attendeeCount}.` : '';
+  return `y\u00eau c\u1ea7u nhu c\u1ea7u: ${needNames.join(', ') || 'Ch\u01b0a r\u00f5'}.${attendeeText}`;
 }
 
 function normalizeDepartment(input: unknown): string {
@@ -651,8 +676,8 @@ async function notifyAdminPendingNeeds(env: Env, request: Request, booking: Retu
   ]);
   const appBaseUrl = getAppBaseUrl(request, env);
   const payload: PushNotificationPayload = {
-    title: 'Có nhu cầu hậu cần cần xác nhận',
-    body: `Phòng ${roomName}, ${booking.userPhone}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)}: ${needNames.join(', ') || 'Chưa rõ'}`,
+    title: 'C\u00f3 nhu c\u1ea7u h\u1eadu c\u1ea7n c\u1ea7n x\u00e1c nh\u1eadn',
+    body: `Ph\u00f2ng ${roomName}, ${formatNotificationDate(booking.date)}, ${formatNotificationTimeRange(booking)}, ${formatNeedsSummary(needNames, booking.attendeeCount)}`,
     url: appBaseUrl,
     tag: `admin-pending-${booking.id}`,
     kind: 'admin-pending',
@@ -684,11 +709,13 @@ async function notifyUserNeedsStatusChange(env: Env, request: Request, booking: 
   const roomName = await resolveRoomName(env.DB, booking.roomId);
   const appBaseUrl = getAppBaseUrl(request, env);
   const isRejected = booking.needsStatus === 'rejected';
+  const bookingWindow = `Ph\u00f2ng ${roomName}, ${formatNotificationDate(booking.date)}, ${formatNotificationTimeRange(booking)}`;
+  const attendeeText = typeof booking.attendeeCount === 'number' ? ` S\u1ed1 ng\u01b0\u1eddi: ${booking.attendeeCount}.` : '';
   const payload: PushNotificationPayload = {
-    title: isRejected ? 'Nhu cầu hậu cần đã bị từ chối' : 'Nhu cầu hậu cần đã được xác nhận',
+    title: isRejected ? 'Nhu c\u1ea7u h\u1eadu c\u1ea7n \u0111\u00e3 b\u1ecb t\u1eeb ch\u1ed1i' : 'Nhu c\u1ea7u h\u1eadu c\u1ea7n \u0111\u00e3 \u0111\u01b0\u1ee3c x\u00e1c nh\u1eadn',
     body: isRejected
-      ? `Phòng ${roomName}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)}. Vui lòng mở ứng dụng để xem chi tiết.`
-      : `Phòng ${roomName}, ${booking.date} ${booking.startTime.slice(11, 16)}-${booking.endTime.slice(11, 16)} đã được admin xác nhận nhu cầu.`,
+      ? `${bookingWindow}. Nhu c\u1ea7u \u0111\u00e3 b\u1ecb t\u1eeb ch\u1ed1i.${attendeeText}`
+      : `${bookingWindow}. Nhu c\u1ea7u \u0111\u00e3 \u0111\u01b0\u1ee3c admin x\u00e1c nh\u1eadn.${attendeeText}`,
     url: appBaseUrl,
     tag: `${isRejected ? 'user-rejected' : 'user-confirmed'}-${booking.id}`,
     kind: isRejected ? 'user-rejected' : 'user-confirmed',

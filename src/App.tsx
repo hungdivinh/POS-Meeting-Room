@@ -30,6 +30,25 @@ function formatBookingIdentity(name?: string, department?: string, phone?: strin
   return [name?.trim(), department?.trim(), phone?.trim()].filter(Boolean).join('-');
 }
 
+function formatNotificationDate(date: string): string {
+  try {
+    return format(parseISO(date), 'dd/MM');
+  } catch {
+    return date;
+  }
+}
+
+function formatNotificationTimeRange(booking: Pick<Booking, 'startTime' | 'endTime'>): string {
+  return `${format(parseISO(booking.startTime), 'HH:mm')} - ${format(parseISO(booking.endTime), 'HH:mm')}`;
+}
+
+function formatAdminNeedsNotificationTitle(roomName: string, booking: Booking, needNames: string): string {
+  const attendeeText =
+    typeof booking.attendeeCount === 'number' ? ` S\u1ed1 ng\u01b0\u1eddi: ${booking.attendeeCount}.` : '';
+
+  return `Ph\u00f2ng ${roomName}, ${formatNotificationDate(booking.date)}, ${formatNotificationTimeRange(booking)}, y\u00eau c\u1ea7u nhu c\u1ea7u: ${needNames || 'Ch\u01b0a r\u00f5'}.${attendeeText}`;
+}
+
 function normalizeStatusText(status?: string): string {
   if (!status) return '';
 
@@ -296,7 +315,7 @@ export default function App() {
     if (!userProfile) return [];
 
     const makeSubtitle = (booking: Booking, roomName: string) =>
-      `${roomName} • ${booking.date} • ${format(parseISO(booking.startTime), 'HH:mm')} - ${format(parseISO(booking.endTime), 'HH:mm')}`;
+      `${roomName} - ${formatNotificationDate(booking.date)} - ${formatNotificationTimeRange(booking)}`;
 
     if (isAdmin) {
       return needsNotificationBookings
@@ -312,7 +331,7 @@ export default function App() {
             id: `admin-${booking.id}`,
             booking,
             kind: 'admin-pending',
-            title: `Phòng ${roomName}, ${format(parseISO(booking.startTime), 'HH:mm')} - ${format(parseISO(booking.endTime), 'HH:mm')}, ${booking.userPhone} yêu cầu nhu cầu: ${needNames || 'Chưa rõ'}.`,
+            title: formatAdminNeedsNotificationTitle(roomName, booking, needNames || ''),
             subtitle: 'Chờ admin xử lý nhu cầu hậu cần.',
           };
         });
